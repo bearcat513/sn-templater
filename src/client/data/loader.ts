@@ -9,6 +9,7 @@ import {
 } from '../engine/template'
 import { recordFieldPaths, recordValues, rowValues, specimenValues, type SchemaField } from '../engine/vocabulary'
 import { andQuery } from '../services/http'
+import { log } from '../debug/log'
 import { RecordService, type ApiRecord } from '../services/records'
 import type { SessionContext, TableSchema } from '../services/schema'
 
@@ -130,6 +131,8 @@ export async function loadRecords(options: LoadOptions): Promise<LoadResult> {
     const { template, schema, session, title, selection, signal } = options
     const paths = recordFieldPaths(template)
     const fields = [...new Set([...paths, 'sys_id', 'number', schema.displayField].filter(Boolean))]
+    const done = log.time('loader', `Loaded “${title}” from ${schema.name}`)
+    log.debug('loader', `Reading ${schema.name}`, { selection, fields })
 
     /* 1 — the records. */
 
@@ -176,17 +179,20 @@ export async function loadRecords(options: LoadOptions): Promise<LoadResult> {
         if (parentId) for (const block of blocks) jobs.push({ source, block, parentId })
     })
 
-    let done = 0
+    let finished = 0
     options.onProgress?.(0, jobs.length)
     await pool(
         jobs,
         CONCURRENCY,
         async ({ source, block, parentId }) => {
-            source.related[relatedKey(block)] = await loadRelated(block, parentId)
-            options.onProgress?.(++done, jobs.length)
+            const rows = await loadRelated(block, parentId)
+            if (rows.error) log.warn('loader', `Related list ${block.table}.${block.field} on ${source.label}: ${rows.error}`, block)
+            source.related[relatedKey(block)] = rows
+            options.onProgress?.(++finished, jobs.length)
         },
         signal
     )
+    done({ records: count, matched, relatedRequests: jobs.length, relatedLists: blocks.length })
 
     return {
         matched,

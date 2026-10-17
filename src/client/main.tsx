@@ -1,6 +1,8 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './app'
+import { DevTools } from './debug/DevTools'
+import { installDebugCapture } from './debug/log'
 import { ToastProvider } from './ui/overlays'
 import './styles/tokens.css'
 import './styles/base.css'
@@ -8,6 +10,10 @@ import './styles/controls.css'
 import './styles/layout.css'
 import './styles/designer.css'
 import './styles/sheet.css'
+import './styles/devtools.css'
+
+// Records from the first request on; `/me` then says whether to keep it or drop it.
+installDebugCapture()
 
 const rootElement = document.getElementById('root')
 if (rootElement) {
@@ -15,6 +21,7 @@ if (rootElement) {
         <React.StrictMode>
             <ToastProvider>
                 <App />
+                <DevTools />
             </ToastProvider>
         </React.StrictMode>
     )

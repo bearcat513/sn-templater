@@ -82,6 +82,21 @@ scripts/               build-starters.mjs
 - **Export with Templater**: a related link on any form, shown only where an active template applies.
 - **Export / present with Templater**: a list action on selected rows.
 
+## Debugging
+
+Set the system property `x_1040823_template.debug` to `true` to turn on the developer tools. It is off by default, and only admins can change it.
+
+- **In the page:** a bug button in the bottom-left corner opens a panel docked to the bottom of the window. `` Ctrl+` `` also opens and closes it. It has three tabs:
+  - **Console:** app log lines (`http`, `loader`, `render`, `editor`, `route`, `toast`…), `console.*` calls, uncaught errors and unhandled rejections. You can filter by level and text, and click a line to open its data.
+  - **Network:** every request the app makes, with status, size, total time and server time, plus headers, payload and response. The session token is redacted.
+  - **State:** the current session, route, the template being edited, and the loaded export job or deck.
+- The download button saves everything recorded as one JSON file you can attach to a bug report. While debugging is on, `window.templater` in the browser's own console exposes the logger and the recorded data.
+- **On the server:** the scripted REST routes write their timings to the system log (`[Templater] … took Nms`) and send a `Server-Timing` header, which appears as the Network tab's Server column.
+- The property is read when the page loads, so reload after changing it. Turned off, the page sends nothing extra and logs nothing.
+- In code, use `log.info/warn/error/debug(source, message, data)` and `log.time(…)` from `src/client/debug/log.ts`, and `useInspect(name, value)` to show a value in the State tab.
+
+The property is an app record, so each deploy resets it to `false`.
+
 ## Build and deploy
 
 ```bash

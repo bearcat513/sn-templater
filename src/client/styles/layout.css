@@ -3,7 +3,7 @@
 .tp-app {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  min-height: calc(100vh - var(--tp-devtools-inset));
 }
 
 .tp-header {
@@ -434,7 +434,7 @@
 
 .tp-export__frame {
   width: 100%;
-  height: calc(100vh - 16rem);
+  height: calc(100vh - 16rem - var(--tp-devtools-inset));
   min-height: 28rem;
   border: 1px solid var(--tp-border);
   border-radius: var(--tp-radius);
@@ -467,7 +467,7 @@
 .tp-editor {
   display: flex;
   flex-direction: column;
-  min-height: calc(100vh - var(--tp-header-height));
+  min-height: calc(100vh - var(--tp-header-height) - var(--tp-devtools-inset));
 }
 
 .tp-editor__bar {

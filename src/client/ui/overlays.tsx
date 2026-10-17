@@ -2,6 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useId, useRef
 import { createPortal } from 'react-dom'
 import { Icon, type IconName } from './icons'
 import { Button, IconButton, cx } from './controls'
+import { log } from '../debug/log'
 
 const FOCUSABLE =
     'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
@@ -246,6 +247,8 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
 
     const push = useCallback((message: string, tone: Toast['tone'] = 'positive') => {
         const id = next.current++
+        if (tone === 'critical') log.error('toast', message)
+        else log.info('toast', message)
         setToasts(current => [...current.slice(-3), { id, message, tone }])
         window.setTimeout(() => setToasts(current => current.filter(toast => toast.id !== id)), 4500)
     }, [])

@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { loadRecords } from '../data/loader'
 import { useSession } from '../data/session'
+import { describeError, log, useInspect } from '../debug/log'
 import { renderPdfDocument, type RenderJob } from '../engine/render'
 import type { PdfTemplate } from '../engine/template'
 import { documentFileName } from '../engine/tokens'
@@ -52,6 +53,7 @@ export function PresentView({ params, navigate }: { params: URLSearchParams; nav
     }, [full.data, fromQuery])
 
     const [deck, setDeck] = useState<Deck | null>(null)
+    useInspect('present.deck', deck)
     const [busy, setBusy] = useState(false)
     const [progress, setProgress] = useState('')
     const [error, setError] = useState('')
@@ -76,6 +78,8 @@ export function PresentView({ params, navigate }: { params: URLSearchParams; nav
             setDeck({ template: read.value, job, title: deckTitle, table: schema.data.name, matched })
             setPageTitle(deckTitle)
         } catch (failure) {
+            const { message, data } = describeError(failure)
+            log.error('present', message, data)
             setError(failure instanceof Error ? failure.message : String(failure))
         } finally {
             setBusy(false)
@@ -86,7 +90,9 @@ export function PresentView({ params, navigate }: { params: URLSearchParams; nav
     const exportPdf = () => {
         if (!deck) return
         try {
+            const drawn = log.time('render', `Deck PDF drawn for “${deck.title}”`)
             const result = renderPdfDocument(deck.template, deck.job)
+            drawn({ pages: result.pageCount, bytes: result.bytes.length, problems: result.problems })
             downloadBytes(result.bytes, documentFileName(deck.title))
         } catch (failure) {
             toast(failure instanceof Error ? failure.message : 'The deck could not be exported.', 'critical')

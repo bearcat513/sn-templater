@@ -77,6 +77,10 @@ declare global {
                         table: 'sys_ws_operation'
                         id: '19830c48863449dcb2948a1077007522'
                     }
+                    'templater-debug-property': {
+                        table: 'sys_properties'
+                        id: '4002675151bc49dd92cf119eb8d65412'
+                    }
                     'templater-form-export': {
                         table: 'sys_ui_action'
                         id: '46af67f5726d4f8eb02b920731f1823e'

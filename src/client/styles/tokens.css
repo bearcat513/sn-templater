@@ -69,4 +69,7 @@
   --tp-text-xl: 1.5rem;
 
   --tp-header-height: 3.25rem;
+
+  /* How much of the bottom of the window the developer tools dock takes (0 when closed). */
+  --tp-devtools-inset: 0px;
 }

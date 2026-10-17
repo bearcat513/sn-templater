@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { log } from '../debug/log'
 
 export type View = 'templates' | 'edit' | 'export' | 'present'
 
@@ -39,7 +40,11 @@ export function useRoute() {
     const [route, setRoute] = useState<Route>(readRoute)
 
     useEffect(() => {
-        const onPop = () => setRoute(readRoute())
+        const onPop = () => {
+            const next = readRoute()
+            log.debug('route', `Back/forward to ${next.view}`, Object.fromEntries(next.params))
+            setRoute(next)
+        }
         window.addEventListener('popstate', onPop)
         return () => window.removeEventListener('popstate', onPop)
     }, [])
@@ -51,6 +56,7 @@ export function useRoute() {
             const path = `${window.location.pathname}?${search.toString()}`
             if (options.replace) window.history.replaceState({}, '', path)
             else window.history.pushState({}, '', path)
+            log.debug('route', `Navigate to ${view}`, Object.fromEntries(search))
             setPageTitle(TITLES[view])
             setRoute({ view, params: search })
             window.scrollTo(0, 0)

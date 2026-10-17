@@ -18,7 +18,7 @@
   position: sticky;
   top: var(--tp-designer-top);
   align-self: start;
-  height: calc(100vh - var(--tp-designer-top));
+  height: calc(100vh - var(--tp-designer-top) - var(--tp-devtools-inset));
   overflow: hidden;
 }
 

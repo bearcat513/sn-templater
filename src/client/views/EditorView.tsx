@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Designer } from '../designer/Designer'
 import { useSession } from '../data/session'
+import { describeError, log, useInspect } from '../debug/log'
 import { TEMPLATE_KIND_LABELS, type PdfTemplate, type TemplateKind } from '../engine/template'
 import { readTemplate, serializeTemplate } from '../engine/validate'
 import { downloadBytes } from '../hooks/usePdf'
@@ -73,6 +74,8 @@ export function EditorView({ id, navigate }: { id: string; navigate: Navigate })
             const starter = readTemplate('', record.kind, schema.fields)
             const body = read.ok ? read.value : starter.ok ? starter.value : null
             if (!live || !body) return
+            log.info('editor', `Opened “${record.name}”`, { sysId: record.sysId, table: record.table, kind: record.kind })
+            if (!read.ok) log.warn('editor', `Stored body unreadable: ${read.error}`, record.body)
             if (!read.ok) setParseNote(`The stored body could not be read (${read.error}) — opened the starter template instead.`)
             const nextMeta = metaOf(record)
             setLoaded({ record, schema, template: body, meta: nextMeta })
@@ -88,6 +91,12 @@ export function EditorView({ id, navigate }: { id: string; navigate: Navigate })
 
     const dirty = Boolean(meta && template && snapshot(meta, template) !== saved)
     const canEdit = session.canEdit
+
+    useInspect('editor.record', loaded?.record)
+    useInspect('editor.schema', loaded?.schema)
+    useInspect('editor.meta', meta)
+    useInspect('editor.template', template)
+    useInspect('editor.dirty', dirty)
 
     /* ------------------------------- leaving ------------------------------- */
 
@@ -136,8 +145,11 @@ export function EditorView({ id, navigate }: { id: string; navigate: Navigate })
             setSaved(snapshot(nextMeta, template))
             setLoaded({ ...loaded, record, meta: nextMeta, template })
             setPageTitle(record.name)
+            log.info('editor', `Saved “${record.name}”`, { sysId: record.sysId, bodyLength: body.length })
             toast('Template saved.')
         } catch (failure) {
+            const { message, data } = describeError(failure)
+            log.error('editor', `Save failed: ${message}`, data)
             setSaveError(failure instanceof Error ? failure.message : 'The template could not be saved.')
         } finally {
             setSaving(false)

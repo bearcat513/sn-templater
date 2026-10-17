@@ -33,6 +33,8 @@ export type SessionContext = {
     date: string
     dateTime: string
     canEdit: boolean
+    /** The x_1040823_template.debug property: show the developer tools. */
+    debug: boolean
 }
 
 /*

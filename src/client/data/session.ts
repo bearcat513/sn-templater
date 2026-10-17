@@ -21,6 +21,7 @@ export const FALLBACK_SESSION: SessionContext = {
     date: new Date().toLocaleDateString(),
     dateTime: new Date().toLocaleString(),
     canEdit: false,
+    debug: false,
 }
 
 export function useOptionalSession(): SessionContext {

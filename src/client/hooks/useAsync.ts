@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { describeError, log } from '../debug/log'
 
 export type AsyncState<T> = {
     data: T | undefined
@@ -31,6 +32,8 @@ export function useAsync<T>(run: () => Promise<T>, deps: unknown[], enabled = tr
             .then(value => mine === ticket.current && setData(value))
             .catch(failure => {
                 if (mine !== ticket.current) return
+                const { message, data } = describeError(failure)
+                log.warn('async', message, data)
                 setError(failure instanceof Error ? failure.message : String(failure))
             })
             .finally(() => mine === ticket.current && setLoading(false))

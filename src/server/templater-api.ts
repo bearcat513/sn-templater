@@ -15,6 +15,7 @@ import { gs, GlideDate, GlideDateTime, GlideRecord, GlideRecordSecure, GlideTabl
  */
 
 const USER_ROLE = 'x_1040823_template.user'
+const DEBUG_PROPERTY = 'x_1040823_template.debug'
 const TABLE_NAME = /^[a-z0-9_]{1,80}$/
 const MAX_RELATIONSHIPS = 400
 
@@ -22,6 +23,31 @@ type Request = { pathParams: Record<string, string>; queryParams: Record<string,
 type Response = {
     setStatus(code: number): void
     setBody(body: unknown): void
+    setHeader(name: string, value: string): void
+}
+
+/** Whether the Templater developer tools are on (the x_1040823_template.debug property). */
+const debugOn = (): boolean => String(gs.getProperty(DEBUG_PROPERTY, 'false')) === 'true'
+
+/**
+ * Runs a route and, with debugging on, reports how long it took: in the
+ * system log, and in a Server-Timing header the page's network log shows.
+ */
+function timed(route: string, response: Response, work: () => void) {
+    if (!debugOn()) {
+        work()
+        return
+    }
+    const started = new Date().getTime()
+    try {
+        work()
+    } finally {
+        const ms = new Date().getTime() - started
+        // The route carries a path parameter: keep only what a header value can safely hold.
+        const label = route.replace(/[^A-Za-z0-9_/ .-]/g, '').slice(0, 120)
+        response.setHeader('Server-Timing', 'templater;desc="' + label + '";dur=' + ms)
+        gs.info('[Templater] ' + label + ' took ' + ms + 'ms for ' + gs.getUserName())
+    }
 }
 
 function refuse(response: Response, status: number, message: string) {
@@ -50,6 +76,10 @@ function readableTable(name: string, response: Response): string | null {
 
 /** GET /schema/{table} — fields, inherited ones included, and the tables that reference it. */
 export function getSchema(request: Request, response: Response) {
+    timed('GET /schema/' + String(request.pathParams.table || ''), response, () => schemaRoute(request, response))
+}
+
+function schemaRoute(request: Request, response: Response) {
     if (!allowed(response)) return
     const table = readableTable(String(request.pathParams.table || ''), response)
     if (!table) return
@@ -95,6 +125,10 @@ export function getSchema(request: Request, response: Response) {
  * use Templater cannot read.
  */
 export function getTables(request: Request, response: Response) {
+    timed('GET /tables', response, () => tablesRoute(request, response))
+}
+
+function tablesRoute(request: Request, response: Response) {
     if (!allowed(response)) return
     const term = String((request.queryParams.q && request.queryParams.q[0]) || '').trim()
 
@@ -157,7 +191,7 @@ function relationshipsOf(table: string) {
     return found
 }
 
-/** GET /me — who is rendering, and today's date in their own format. */
+/** GET /me — who is rendering, today's date in their own format, and whether debugging is on. */
 export function getContext(_request: Request, response: Response) {
     if (!allowed(response)) return
     const user = gs.getUser()
@@ -169,5 +203,6 @@ export function getContext(_request: Request, response: Response) {
         date: String(new GlideDate().getDisplayValue()),
         dateTime: String(new GlideDateTime().getDisplayValue()),
         canEdit: gs.hasRole('x_1040823_template.editor'),
+        debug: debugOn(),
     })
 }

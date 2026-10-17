@@ -100,7 +100,7 @@
 
 .tp-presenter {
   position: fixed;
-  inset: 0;
+  inset: 0 0 var(--tp-devtools-inset);
   z-index: 500;
   display: flex;
   flex-direction: column;

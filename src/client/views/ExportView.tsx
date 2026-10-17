@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { loadRecords, type RecordSelection } from '../data/loader'
 import { useSession } from '../data/session'
+import { describeError, log, useInspect } from '../debug/log'
 import { renderPdfDocument, type PdfRenderResult, type RenderJob } from '../engine/render'
 import type { PdfTemplate } from '../engine/template'
 import { documentFileName } from '../engine/tokens'
@@ -89,6 +90,8 @@ export function ExportView({ params, navigate }: { params: URLSearchParams; navi
     /* ------------------------------ making ------------------------------- */
 
     const [output, setOutput] = useState<Output | null>(null)
+    useInspect('export.template', full.data)
+    useInspect('export.job', output?.job)
     const [busy, setBusy] = useState(false)
     const [progress, setProgress] = useState('')
     const [error, setError] = useState('')
@@ -127,7 +130,15 @@ export function ExportView({ params, navigate }: { params: URLSearchParams; navi
             setProgress('Drawing the PDF…')
             // Let the progress line paint before the synchronous render.
             await new Promise(resolve => window.setTimeout(resolve, 16))
+            const drawn = log.time('render', `Export PDF drawn for “${record.name}”`)
             const result = renderPdfDocument(template, job)
+            drawn({
+                pages: result.pageCount,
+                bytes: result.bytes.length,
+                records: job.records.length,
+                unknownTokens: result.unknownTokens,
+                problems: result.problems,
+            })
 
             if (urlRef.current) URL.revokeObjectURL(urlRef.current)
             const url = URL.createObjectURL(new Blob([result.bytes as unknown as BlobPart], { type: 'application/pdf' }))
@@ -143,6 +154,8 @@ export function ExportView({ params, navigate }: { params: URLSearchParams; navi
                 single: single ? { table: tableSchema.name, sysId: current.sysId } : null,
             })
         } catch (failure) {
+            const { message, data } = describeError(failure)
+            log.error('export', message, data)
             setError(failure instanceof Error ? failure.message : String(failure))
         } finally {
             setBusy(false)

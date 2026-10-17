@@ -1,5 +1,7 @@
-import React, { useEffect } from 'react'
+import React, { useEffect, useMemo } from 'react'
 import { SessionProvider } from './data/session'
+import { log, useInspect } from './debug/log'
+import { setDebugEnabled } from './debug/store'
 import { useAsync } from './hooks/useAsync'
 import { setPageTitle, useRoute, type View } from './hooks/useRoute'
 import { SchemaService } from './services/schema'
@@ -19,6 +21,15 @@ const NAV: { view: View; label: string; icon: IconName }[] = [
 export default function App() {
     const { route, navigate } = useRoute()
     const session = useAsync(() => SchemaService.context(), [])
+
+    // The debug property arrives with the session; without a session there are no developer tools.
+    useEffect(() => {
+        if (session.loading) return
+        setDebugEnabled(Boolean(session.data?.debug))
+        if (session.data?.debug) log.info('app', `Debugging on for ${session.data.userName}`, session.data)
+    }, [session.loading, session.data])
+    useInspect('session', session.data)
+    useInspect('route', useMemo(() => ({ view: route.view, params: Object.fromEntries(route.params) }), [route]))
 
     useEffect(() => {
         if (route.view !== 'edit') setPageTitle(NAV.find(item => item.view === route.view)?.label ?? 'Templater')

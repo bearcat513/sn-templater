@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { renderPdfDocument, type PdfRenderResult, type RenderJob } from '../engine/render'
 import type { PdfTemplate } from '../engine/template'
+import { describeError, log } from '../debug/log'
 
 export type PdfState = {
     /** A blob URL for the last good render, for an iframe or a download link. */
@@ -25,8 +26,19 @@ export function usePdf(template: PdfTemplate | null, job: RenderJob | null): Pdf
     const rendered = useMemo(() => {
         if (!template || !job) return { result: null, error: '' }
         try {
-            return { result: renderPdfDocument(template, job), error: '' }
+            const done = log.time('render', 'Preview PDF drawn')
+            const result = renderPdfDocument(template, job)
+            done({
+                pages: result.pageCount,
+                bytes: result.bytes.length,
+                records: job.records.length,
+                unknownTokens: result.unknownTokens,
+                problems: result.problems,
+            })
+            return { result, error: '' }
         } catch (failure) {
+            const { message, data } = describeError(failure)
+            log.error('render', `Preview failed: ${message}`, data)
             return {
                 result: null,
                 error: failure instanceof Error ? failure.message : 'This template could not be rendered.',
