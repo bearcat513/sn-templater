@@ -96,6 +96,42 @@
   overflow-wrap: anywhere;
 }
 
+/* A custom slide: elements placed by hand, in sheet points. Text may run
+   past its box, as it does in the PDF and in PowerPoint. */
+
+.tp-sheet__free {
+  position: absolute;
+  inset: 0;
+}
+
+.tp-free__svg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  overflow: visible;
+}
+
+.tp-free__text {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  overflow: visible;
+}
+
+.tp-free__para {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+.tp-free__bullet {
+  display: flex;
+}
+
+.tp-free__bullet .tp-free__para {
+  flex: 1;
+}
+
 /* ------------------------------------------------------------- presenter */
 
 .tp-presenter {

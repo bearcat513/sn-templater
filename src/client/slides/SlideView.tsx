@@ -1,9 +1,9 @@
 import React, { useLayoutEffect, useRef } from 'react'
 import { pageDimensions } from '../engine/pdf'
-import type { FontFamily } from '../engine/pdfFonts'
 import { resolvePage, resolveStyle } from '../engine/render'
 import { relatedKey, type PdfBlock, type PdfPageSetup, type PdfStyle, type PdfTemplate } from '../engine/template'
 import { fillTokens } from '../engine/tokens'
+import { FONT_STACKS, FreeformContent } from './Freeform'
 import type { Slide } from './paginate'
 
 /**
@@ -17,13 +17,11 @@ import type { Slide } from './paginate'
  *
  * Where a slide holds more than fits, the content is scaled down to fit
  * rather than cut off: a projector has no second page to flow onto.
+ *
+ * A custom slide has no flow to fit: its elements are drawn where they were
+ * placed (see ./Freeform.tsx), on its own background, and with the
+ * template's letterhead, watermark and footer only if it asked for them.
  */
-
-const FONT_STACKS: Record<FontFamily, string> = {
-    helvetica: 'Helvetica, Arial, "Liberation Sans", sans-serif',
-    times: '"Times New Roman", Times, "Liberation Serif", serif',
-    courier: '"Courier New", Courier, "Liberation Mono", monospace',
-}
 
 type Props = {
     template: PdfTemplate
@@ -31,9 +29,11 @@ type Props = {
     /** Shown width in CSS pixels. The height follows the paper. */
     width: number
     className?: string
+    /** The builder's canvas: placeholders shown, and the text being edited left out. */
+    editing?: { placeholders: boolean; hideTextOf?: string }
 }
 
-export function SlideView({ template, slide, width, className }: Props) {
+export function SlideView({ template, slide, width, className, editing }: Props) {
     const page = resolvePage(template)
     const style = resolveStyle(template, page.fontSize)
     const sheet = pageDimensions(page.size, page.landscape)
@@ -57,9 +57,11 @@ export function SlideView({ template, slide, width, className }: Props) {
         element.style.width = fit < 1 ? `${100 / fit}%` : '100%'
     })
 
-    const watermark = template.watermark?.text ? fill(template.watermark.text) : ''
-    const footer = template.footer?.text ? fill(template.footer.text) : ''
-    const showNumbers = template.footer?.showPageNumbers !== false
+    const custom = slide.custom
+    const furnished = !custom || custom.furniture === true
+    const watermark = furnished && template.watermark?.text ? fill(template.watermark.text) : ''
+    const footer = furnished && template.footer?.text ? fill(template.footer.text) : ''
+    const showNumbers = furnished && template.footer?.showPageNumbers !== false
 
     return (
         <div
@@ -74,7 +76,7 @@ export function SlideView({ template, slide, width, className }: Props) {
                     width: sheet.width,
                     height: sheet.height,
                     transform: `scale(${scale})`,
-                    background: page.background || '#ffffff',
+                    background: custom?.background || page.background || '#ffffff',
                     color: page.textColor,
                     fontFamily: FONT_STACKS[page.family],
                     fontSize: page.fontSize,
@@ -94,8 +96,15 @@ export function SlideView({ template, slide, width, className }: Props) {
                     </div>
                 )}
 
-                <Letterhead template={template} page={page} sheetWidth={sheet.width} fill={fill} slide={slide} />
+                {furnished && (
+                    <Letterhead template={template} page={page} sheetWidth={sheet.width} fill={fill} slide={slide} />
+                )}
 
+                {custom ? (
+                    <div className="tp-sheet__free">
+                        <FreeformContent slide={custom} family={page.family} fill={fill} editing={editing} />
+                    </div>
+                ) : (
                 <div
                     className="tp-sheet__content"
                     style={{
@@ -119,6 +128,7 @@ export function SlideView({ template, slide, width, className }: Props) {
                         ))}
                     </div>
                 </div>
+                )}
 
                 {(footer || showNumbers) && (
                     <div

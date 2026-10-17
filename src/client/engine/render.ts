@@ -13,9 +13,11 @@
  * footer — is resolved per page against the record that owns it, so a footer
  * reading `{{record.number}}` is right on every page of a fifty-record file.
  */
+import { renderCustomSlide } from "./freeform";
 import { decodeImage, imageBox, type EmbeddableImage } from "./image";
 import { PdfDocument, DEFAULT_MARGINS, type TableCell, type TableColumn } from "./pdf";
 import { measureText } from "./pdfFonts";
+import type { CustomSlide } from "./presentation";
 import { fillTokens } from "./tokens";
 import {
   DEFAULT_PAGE,
@@ -64,6 +66,20 @@ export type RenderJob = {
   coverValues: Record<string, string>;
 };
 
+/**
+ * One slide of an arranged deck, as the renderer needs it: a run of the
+ * template's blocks against a record, or a custom slide. `slides/paginate.ts`
+ * makes these; a presentation puts them in its own order.
+ */
+export type SlideSource = {
+  /** -1 for the cover, a record's index, or below -1 for a custom slide. */
+  owner: number;
+  blocks: PdfBlock[];
+  custom?: CustomSlide;
+  values: Record<string, string>;
+  related: Record<string, RelatedRows>;
+};
+
 export type PdfRenderResult = {
   bytes: Uint8Array;
   /** Tokens the template used that resolved to nothing. Rendered as blank. */
@@ -109,6 +125,42 @@ type RenderContext = {
  * download with no explanation is the least useful thing this could do.
  */
 export function renderPdfDocument(template: PdfTemplate, job: RenderJob): PdfRenderResult {
+  const sections: SlideSource[] = [];
+  if (template.cover?.length) {
+    sections.push({ owner: -1, blocks: template.cover, values: job.coverValues, related: {} });
+  }
+  job.records.forEach((record, index) =>
+    sections.push({ owner: index, blocks: template.blocks, values: record.values, related: record.related }),
+  );
+  return renderSections(template, job, sections, "No records matched.");
+}
+
+/**
+ * Draws an arranged deck: each slide on its own page, in the order given.
+ *
+ * What a presentation exports — its own running order, hidden slides already
+ * left out, custom slides drawn where they were slotted in. A record slide
+ * that holds more than a page flows onto the next, as it does in a document.
+ */
+export function renderPdfSlides(template: PdfTemplate, job: RenderJob, slides: SlideSource[]): PdfRenderResult {
+  return renderSections(template, job, slides, "No slides to show.");
+}
+
+/** What each page of the file is, for the furniture drawn over it once they all exist. */
+type PageInfo = {
+  owner: number;
+  values: Record<string, string>;
+  /** Letterhead, watermark and footer. A custom slide has them only when asked. */
+  furniture: boolean;
+  background?: string;
+};
+
+function renderSections(
+  template: PdfTemplate,
+  job: RenderJob,
+  sections: SlideSource[],
+  emptyText: string,
+): PdfRenderResult {
   const page = resolvePage(template);
   const style = resolveStyle(template, page.fontSize);
   const unknown = new Set<string>();
@@ -152,44 +204,44 @@ export function renderPdfDocument(template: PdfTemplate, job: RenderJob): PdfRen
     (text: string, extra?: Record<string, string>): string =>
       fillTokens(text, extra ? { ...values, ...extra } : values, unknown);
 
-  /* --- the flow: cover, then a section per record --- */
+  /* --- the flow: a section per slide (or per record), each on a fresh page --- */
 
-  // Which section each page belongs to: -1 is the cover, otherwise a record.
-  const owners: number[] = [];
-  const claim = (owner: number) => {
-    while (owners.length < document.pageCount) owners.push(owner);
+  // What each page belongs to: the cover (-1), a record, or a custom slide.
+  const pages: PageInfo[] = [];
+  const claim = (info: PageInfo) => {
+    while (pages.length < document.pageCount) pages.push(info);
   };
   let started = false;
 
-  const section = (blocks: PdfBlock[], values: Record<string, string>, related: Record<string, RelatedRows>) => {
+  for (const section of sections) {
     if (started) document.addPage();
     started = true;
-    const context: RenderContext = { document, page, style, fill: filler(values), related, picture, problems };
-    for (const block of blocks) renderBlock(block, context);
-  };
-
-  if (template.cover?.length) {
-    section(template.cover, job.coverValues, {});
-    claim(-1);
+    const fill = filler(section.values);
+    if (section.custom) {
+      renderCustomSlide(section.custom, { document, family: page.family, fill, picture });
+    } else {
+      const context: RenderContext = { document, page, style, fill, related: section.related, picture, problems };
+      for (const block of section.blocks) renderBlock(block, context);
+    }
+    claim({
+      owner: section.owner,
+      values: section.values,
+      furniture: !section.custom || section.custom.furniture === true,
+      background: section.custom?.background ?? page.background,
+    });
   }
 
-  job.records.forEach((record, index) => {
-    section(template.blocks, record.values, record.related);
-    claim(index);
-  });
-
   if (!started) {
-    document.text("No records matched.", { color: page.mutedColor, size: page.fontSize + 2 });
-    claim(-1);
+    document.text(emptyText, { color: page.mutedColor, size: page.fontSize + 2 });
+    claim({ owner: -1, values: job.coverValues, furniture: true, background: page.background });
   }
 
   /* --- page furniture, once every page exists --- */
 
-  const valuesOn = (pageNumber: number): Record<string, string> => {
-    const owner = owners[pageNumber - 1] ?? -1;
-    return owner === -1 ? job.coverValues : (job.records[owner]?.values ?? job.coverValues);
-  };
-  const fillOn = (pageNumber: number, text: string) => filler(valuesOn(pageNumber))(text);
+  const infoOn = (pageNumber: number): PageInfo => pages[pageNumber - 1] ?? pages[0]!;
+  const owners = pages.map(info => info.owner);
+  const fillOn = (pageNumber: number, text: string) => filler(infoOn(pageNumber).values)(text);
+  const furnished = (pageNumber: number) => infoOn(pageNumber).furniture;
 
   // Registered before the background: the later of two "beneath" overlays is
   // drawn under the earlier, and the paper has to be under everything.
@@ -197,6 +249,7 @@ export function renderPdfDocument(template: PdfTemplate, job: RenderJob): PdfRen
     const watermark = template.watermark;
     document.onEachPage(
       (doc, current) => {
+        if (!furnished(current)) return;
         const text = fillOn(current, watermark.text);
         doc.drawWatermark(watermark.uppercase ? text.toUpperCase() : text, {
           color: watermark.color ?? page.accentColor,
@@ -210,20 +263,28 @@ export function renderPdfDocument(template: PdfTemplate, job: RenderJob): PdfRen
     );
   }
 
-  if (page.background && !/^#?f{3}(f{3})?$/i.test(page.background)) {
-    const background = page.background;
-    document.onEachPage(doc => doc.drawRect(0, 0, doc.width, doc.height, background), { beneath: true });
+  // White paper needs no drawing; any other sheet — the template's, or a custom slide's own — does.
+  const painted = (color: string | undefined): color is string => Boolean(color) && !/^#?f{3}(f{3})?$/i.test(color!);
+  if (pages.some(info => painted(info.background))) {
+    document.onEachPage(
+      (doc, current) => {
+        const background = infoOn(current).background;
+        if (painted(background)) doc.drawRect(0, 0, doc.width, doc.height, background);
+      },
+      { beneath: true },
+    );
   }
 
   // "First page only" means the first page of each record's section: a batch
   // of letters is letterheaded on every letter, not only on the first.
   const sectionStart = (pageNumber: number) =>
     pageNumber === 1 || owners[pageNumber - 1] !== owners[pageNumber - 2];
-  renderHeader(template.header, { document, page, fillOn, picture, sectionStart });
+  renderHeader(template.header, { document, page, fillOn, picture, sectionStart, furnished });
 
   const showPageNumbers = template.footer?.showPageNumbers !== false;
   if (template.footer?.text || showPageNumbers) {
     document.onEachPage((doc, current) => {
+      if (!furnished(current)) return;
       const y = doc.y;
       const size = Math.max(6, page.fontSize - 2);
       const text = template.footer?.text ? fillOn(current, template.footer.text) : "";
@@ -231,11 +292,13 @@ export function renderPdfDocument(template: PdfTemplate, job: RenderJob): PdfRen
 
       if (showPageNumbers) {
         // Numbered within the record's own section, so a batch of fifty
-        // incidents reads "Page 1 of 2" on each rather than "Page 37 of 100".
+        // incidents reads "Page 1 of 2" on each rather than "Page 37 of 100" —
+        // counted rather than subtracted, because an arranged deck can put a
+        // custom slide between a record's two pages.
         const owner = owners[current - 1];
-        const first = owners.indexOf(owner!);
+        const number = owners.slice(0, current).filter(entry => entry === owner).length;
         const count = owners.filter(entry => entry === owner).length;
-        const label = `Page ${current - first} of ${count}`;
+        const label = `Page ${number} of ${count}`;
         doc.drawTextAt(label, doc.left + doc.contentWidth - measureText(label, page.family, size), y, {
           size,
           color: page.mutedColor,
@@ -273,6 +336,7 @@ function renderHeader(
     fillOn: (page: number, text: string) => string;
     picture: PictureResolver;
     sectionStart: (page: number) => boolean;
+    furnished: (page: number) => boolean;
   },
 ): void {
   const { document, page } = context;
@@ -297,6 +361,7 @@ function renderHeader(
   }
 
   document.onEachPage((doc, current) => {
+    if (!context.furnished(current)) return;
     if (header.firstPageOnly && !context.sectionStart(current)) return;
 
     if (logo && logoHeight > 0) {

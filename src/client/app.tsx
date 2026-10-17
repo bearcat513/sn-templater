@@ -10,6 +10,7 @@ import { Notice, Spinner, cx } from './ui/controls'
 import { EditorView } from './views/EditorView'
 import { ExportView } from './views/ExportView'
 import { PresentView } from './views/PresentView'
+import { BuilderView } from './views/BuilderView'
 import { TemplatesView } from './views/TemplatesView'
 
 const NAV: { view: View; label: string; icon: IconName }[] = [
@@ -32,10 +33,10 @@ export default function App() {
     useInspect('route', useMemo(() => ({ view: route.view, params: Object.fromEntries(route.params) }), [route]))
 
     useEffect(() => {
-        if (route.view !== 'edit') setPageTitle(NAV.find(item => item.view === route.view)?.label ?? 'Templater')
+        if (route.view !== 'edit' && route.view !== 'build') setPageTitle(NAV.find(item => item.view === route.view)?.label ?? 'Templater')
     }, [route.view])
 
-    const active = route.view === 'edit' ? 'templates' : route.view
+    const active = route.view === 'edit' ? 'templates' : route.view === 'build' ? 'present' : route.view
     // Remounting a view when its query changes resets it, so opening a second
     // record from a form starts clean rather than inheriting the first.
     const viewKey = route.params.toString()
@@ -104,6 +105,7 @@ export default function App() {
                         )}
                         {route.view === 'export' && <ExportView key={viewKey} params={route.params} navigate={navigate} />}
                         {route.view === 'present' && <PresentView key={viewKey} params={route.params} navigate={navigate} />}
+                        {route.view === 'build' && <BuilderView key={viewKey} params={route.params} navigate={navigate} />}
                     </SessionProvider>
                 )}
             </main>

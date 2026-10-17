@@ -49,7 +49,7 @@ Record({
         application: templaterMenu,
         link_type: 'DIRECT',
         query: 'x_1040823_template_templater.do?view=present',
-        hint: 'Present records as slides',
+        hint: 'Present records as slides, and open saved presentations',
         roles: [templaterUser],
         active: true,
         order: 300,
@@ -68,5 +68,20 @@ Record({
         roles: [templaterEditor],
         active: true,
         order: 400,
+    },
+})
+
+Record({
+    $id: Now.ID['templater-module-presentation-table'],
+    table: 'sys_app_module',
+    data: {
+        title: 'All presentation records',
+        application: templaterMenu,
+        link_type: 'LIST',
+        name: 'x_1040823_template_presentation',
+        hint: 'Saved presentations, for administration',
+        roles: [templaterEditor],
+        active: true,
+        order: 500,
     },
 })

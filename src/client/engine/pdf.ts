@@ -535,6 +535,122 @@ export class PdfDocument {
     this.op("Q");
   }
 
+  /**
+   * Runs `draw` with everything it draws made see-through.
+   *
+   * The transparency is a graphics state, so it brackets the drawing in
+   * `q … Q` and is gone again afterwards — nothing drawn later inherits it.
+   */
+  withOpacity(opacity: number | undefined, draw: () => void): void {
+    if (opacity === undefined || opacity >= 1) {
+      draw();
+      return;
+    }
+    const state = this.alphaName(opacity);
+    this.page.states.add(state);
+    this.op("q");
+    this.op(`/${state} gs`);
+    draw();
+    this.op("Q");
+  }
+
+  /**
+   * A shape in a box at an absolute position: filled, outlined, or both.
+   *
+   * Curves are cubic Béziers — four of them make an ellipse to within a
+   * hair's breadth (0.5523 is the usual circle constant), and a quarter of
+   * one rounds each corner of a rounded rectangle.
+   */
+  drawShape(
+    shape: "rect" | "roundRect" | "ellipse" | "triangle",
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    options: { fill?: string; stroke?: string; strokeWidth?: number; radius?: number } = {},
+  ): void {
+    if (width <= 0 || height <= 0) return;
+    const stroke = options.stroke && (options.strokeWidth ?? 1) > 0 ? options.stroke : undefined;
+    if (!options.fill && !stroke) return;
+
+    const left = x;
+    const right = x + width;
+    const top = this.toPdfY(y);
+    const bottom = this.toPdfY(y + height);
+    const p = (px: number, py: number) => `${round(px)} ${round(py)}`;
+    let path: string;
+
+    if (shape === "ellipse") {
+      const k = 0.5523;
+      const cx = x + width / 2;
+      const cy = (top + bottom) / 2;
+      const rx = width / 2;
+      const ry = height / 2;
+      path =
+        `${p(cx + rx, cy)} m ` +
+        `${p(cx + rx, cy + ry * k)} ${p(cx + rx * k, cy + ry)} ${p(cx, cy + ry)} c ` +
+        `${p(cx - rx * k, cy + ry)} ${p(cx - rx, cy + ry * k)} ${p(cx - rx, cy)} c ` +
+        `${p(cx - rx, cy - ry * k)} ${p(cx - rx * k, cy - ry)} ${p(cx, cy - ry)} c ` +
+        `${p(cx + rx * k, cy - ry)} ${p(cx + rx, cy - ry * k)} ${p(cx + rx, cy)} c h`;
+    } else if (shape === "triangle") {
+      path = `${p(x + width / 2, top)} m ${p(right, bottom)} l ${p(left, bottom)} l h`;
+    } else if (shape === "roundRect") {
+      const r = Math.min(options.radius ?? Math.min(width, height) * 0.16, width / 2, height / 2);
+      const k = r * (1 - 0.5523);
+      path =
+        `${p(left + r, top)} m ${p(right - r, top)} l ` +
+        `${p(right - k, top)} ${p(right, top - k)} ${p(right, top - r)} c ` +
+        `${p(right, bottom + r)} l ` +
+        `${p(right, bottom + k)} ${p(right - k, bottom)} ${p(right - r, bottom)} c ` +
+        `${p(left + r, bottom)} l ` +
+        `${p(left + k, bottom)} ${p(left, bottom + k)} ${p(left, bottom + r)} c ` +
+        `${p(left, top - r)} l ` +
+        `${p(left, top - k)} ${p(left + k, top)} ${p(left + r, top)} c h`;
+    } else {
+      path = `${p(left, bottom)} ${round(width)} ${round(height)} re`;
+    }
+
+    this.op("q");
+    if (options.fill) this.op(colorOp(options.fill));
+    if (stroke) {
+      this.op(colorOp(stroke, true));
+      this.op(`${round(options.strokeWidth ?? 1)} w`);
+      this.op("1 j");
+    }
+    this.op(`${path} ${options.fill && stroke ? "B" : options.fill ? "f" : "S"}`);
+    this.op("Q");
+  }
+
+  /** A straight line between two absolute points, optionally dashed. Does not move the cursor. */
+  drawLine(
+    x1: number,
+    y1: number,
+    x2: number,
+    y2: number,
+    options: { color?: string; thickness?: number; dashed?: boolean } = {},
+  ): void {
+    const thickness = options.thickness ?? 1;
+    this.op("q");
+    this.op(colorOp(options.color ?? "#000000", true));
+    this.op(`${round(thickness)} w`);
+    this.op("1 J");
+    if (options.dashed) this.op(`[${round(thickness * 3)} ${round(thickness * 2.5)}] 0 d`);
+    this.op(`${round(x1)} ${round(this.toPdfY(y1))} m ${round(x2)} ${round(this.toPdfY(y2))} l S`);
+    this.op("Q");
+  }
+
+  /** A filled polygon through absolute points — an arrowhead. */
+  drawPolygon(points: [number, number][], fill: string): void {
+    if (points.length < 3) return;
+    const path = points
+      .map(([px, py], index) => `${round(px)} ${round(this.toPdfY(py))} ${index === 0 ? "m" : "l"}`)
+      .join(" ");
+    this.op("q");
+    this.op(colorOp(fill));
+    this.op(`${path} h f`);
+    this.op("Q");
+  }
+
   /* -------------------------------- blocks ------------------------------- */
 
   /**

@@ -1,18 +1,27 @@
-import type { RelatedRows, RenderJob } from '../engine/render'
+import type { RenderJob, SlideSource } from '../engine/render'
+import {
+    arrangeKeys,
+    customKey,
+    slideName,
+    type CustomSlide,
+    type PresentationBody,
+} from '../engine/presentation'
 import type { PdfBlock, PdfTemplate } from '../engine/template'
 
-/** One slide: a run of blocks between page breaks, and the record it belongs to. */
-export type Slide = {
-    /** -1 for the cover, otherwise the record's index in the job. */
-    owner: number
-    blocks: PdfBlock[]
-    values: Record<string, string>
-    related: Record<string, RelatedRows>
+/** One slide: a run of blocks between page breaks and the record it belongs to, or a custom slide. */
+export type Slide = SlideSource & {
+    /**
+     * What the slide is, stably across loads: `cover:1`, `record:<sys_id>:2`,
+     * `custom:<id>`. A presentation's running order is written in these.
+     */
+    key: string
     /** What the presenter calls it. */
     label: string
     /** 1-based position within its own record, and how many slides that record has. */
     part: number
     parts: number
+    /** Left out of the show and the PDF, but kept in the presentation. */
+    hidden?: boolean
 }
 
 /** Blocks split at every page break: one run per page. */
@@ -38,6 +47,7 @@ export function paginate(template: PdfTemplate, job: RenderJob): Slide[] {
         const runs = split(template.cover)
         runs.forEach((blocks, index) =>
             slides.push({
+                key: `cover:${index + 1}`,
                 owner: -1,
                 blocks,
                 values: job.coverValues,
@@ -51,8 +61,10 @@ export function paginate(template: PdfTemplate, job: RenderJob): Slide[] {
 
     job.records.forEach((record, owner) => {
         const runs = split(template.blocks)
+        const identity = record.values['raw.sys_id'] || String(owner)
         runs.forEach((blocks, index) =>
             slides.push({
+                key: `record:${identity}:${index + 1}`,
                 owner,
                 blocks,
                 values: record.values,
@@ -66,3 +78,48 @@ export function paginate(template: PdfTemplate, job: RenderJob): Slide[] {
 
     return slides
 }
+
+/** A custom slide as a slide: the deck's values, no record, no blocks. */
+export function customSlide(slide: CustomSlide, job: RenderJob, index: number): Slide {
+    return {
+        key: customKey(slide.id),
+        owner: -2 - index,
+        blocks: [],
+        custom: slide,
+        values: job.coverValues,
+        related: {},
+        label: slideName(slide),
+        part: 1,
+        parts: 1,
+    }
+}
+
+/**
+ * A presentation's slides, in its own running order — hidden ones included
+ * and flagged, for the builder — with `{{slide.number}}` and
+ * `{{slide.count}}` counted over the slides that will actually be shown.
+ *
+ * Takes the deck already paginated, so a caller that re-arranges on every
+ * edit keeps the same record slides — and can tell which thumbnails changed.
+ */
+export function arrange(generated: Slide[], job: RenderJob, body: PresentationBody): Slide[] {
+    const custom = body.slides.map((slide, index) => customSlide(slide, job, index))
+    const placed = arrangeKeys(generated, custom, body.order)
+    const count = placed.filter(entry => !entry.hidden).length
+    let number = 0
+    return placed.map(({ item, hidden }) => {
+        if (!hidden) number++
+        return {
+            ...item,
+            hidden: hidden || undefined,
+            values: {
+                ...item.values,
+                'slide.number': hidden ? '' : String(number),
+                'slide.count': String(count),
+            },
+        }
+    })
+}
+
+/** The slides that are shown. */
+export const shown = (slides: Slide[]): Slide[] => slides.filter(slide => !slide.hidden)

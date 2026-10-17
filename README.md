@@ -31,6 +31,44 @@ A token that resolves to nothing renders blank, and the designer and the export 
 
 Heading, text, field list, columns, **related list**, stats, image, signatures, divider, spacer, and page break. Page-level features are the letterhead (logo plus text), a watermark, a footer with per-record page numbers, an optional cover page or title slide, and a house style.
 
+## Presentations and the slide builder
+
+A **presentation** is a deck you arrange and save. It is a record on `x_1040823_template_presentation` with these parts:
+
+- the deck template it is built on
+- which records get slides: a filter, a sort order and a limit
+- a title
+- a `body`: the custom slides and the running order, as JSON
+
+Record slides are not stored. They are drawn from the template each time the presentation opens, against whatever the filter matches then. That means a presentation saved once shows this week's records next week.
+
+To open the **slide builder**, use **Build slides** on the Present page, or **Edit** on a saved presentation. You can also open it from inside the presenter.
+
+- **Arranging:** drag slides in the left-hand list to reorder them, or hide a slide so it is left out of the show and the PDF. Record slides can be moved and hidden; to change what is on one, edit the template.
+- **Custom slides:** the **+** between any two slides inserts a custom slide there. Layouts are Blank, Title slide, Title and content, Section header, Two content and Title only. A custom slide uses the deck's page size, colours and fonts. Its prompts ("Click to add title") show only while editing.
+- **Building a slide:**
+  - Insert text boxes, shapes (rectangle, rounded rectangle, ellipse, triangle), lines, arrows and pictures. You can also drop a picture onto the slide.
+  - Drag to move. Edges and centres snap to the slide and to each other; hold Alt to move freely.
+  - Resize from the handles. Shift keeps proportions; a picture keeps them unless you hold Shift.
+  - Drag either end of a line.
+  - Double-click a shape to type in it.
+- **Formatting:**
+  - Text: font, size, bold, italic, underline, colour, horizontal and vertical alignment, bullets and line spacing.
+  - Shapes and lines: fill, outline and weight, opacity, dashes and arrowheads.
+  - Arranging elements: bring forward, send backward, align to the slide or to each other, distribute evenly.
+  - Slides: a background and an optional letterhead, watermark and footer per slide.
+- **Keys:**
+  - Ctrl+Z / Ctrl+Y undo and redo. Ctrl+C / Ctrl+X / Ctrl+V copy, cut and paste, also between slides. Ctrl+D duplicates, and Ctrl+A selects everything on the slide.
+  - Delete removes. The arrow keys nudge (with Shift, by 10). Enter types in the selected shape, and Ctrl+B / I / U format it.
+  - Page Up / Page Down change slides. F5 presents from the start; Shift+F5 presents from the current slide. Ctrl+S saves.
+- **Tokens:** a custom slide's text can use `{{deck.title}}`, `{{deck.count}}`, `{{table.label}}`, `{{now.date}}`, `{{user.name}}`, `{{slide.number}}` and `{{slide.count}}`. Slide numbers count only the slides that are shown.
+
+**Running order:** the order is saved as slide keys (`cover:1`, `record:<sys_id>:1`, `custom:<id>`), not as positions. A record that no longer matches the filter drops out. A record that starts to match is placed among the other record slides, after the record it follows in the filter's own order.
+
+**Who can change one:** every Templater user can open and present any presentation, and save their own. Only the author or a Templater editor can change or delete one. Anyone else gets **Save a copy**. Deleting a deck template keeps its presentations: their custom slides stay and can be moved onto another deck.
+
+The presenter and the PDF export use the presentation's own order and leave hidden slides out. Custom slides are drawn by the same geometry on screen (`src/client/slides/Freeform.tsx`) and in the PDF (`src/client/engine/freeform.ts`).
+
 ## Starter templates
 
 The app installs six ready-made templates, written against each table's base-system fields:
@@ -57,13 +95,16 @@ They also show in the **New template** dialog under "Start from", which creates 
 src/client/engine/     pure engine (pdf.ts, pdfFonts.ts, image.ts, imageFile.ts are ported verbatim)
   template.ts          block language, starters
   gallery.ts           the ready-made templates (source of the installed starters)
-  render.ts            PDF renderer: many records, cover, per-page furniture
+  render.ts            PDF renderer: many records, cover, per-page furniture; arranged decks
+  presentation.ts      saved presentations: custom slides, running order, layouts
+  freeform.ts          custom slides into the PDF, and the geometry the screen shares
   validate.ts          drop-don't-refuse body reader
   vocabulary.ts        tokens to field paths and values
 src/client/data/       loader: fetches only the fields and related lists a template uses
-src/client/slides/     HTML renderer of the same template, and the presenter
+src/client/slides/     HTML renderer of the same template, custom slides, and the presenter
 src/client/designer/   template designer (token panel, blocks, live preview)
-src/client/views/      Templates, Editor, Export, Present
+src/client/builder/    slide builder: canvas, slide list, ribbon, inspector, undo
+src/client/views/      Templates, Editor, Export, Present, Builder
 src/client/ui/         custom components (no UI libraries)
 src/server/            scripted REST: /schema/{table}, /tables, /me
 src/fluent/            table, roles, ACLs, REST API, UI page, menu, UI actions
@@ -78,7 +119,8 @@ scripts/               build-starters.mjs
 
 ## Entry points
 
-- **Templater** application menu: Templates, Export to PDF, Present a deck.
+- **Templater** application menu: Templates, Export to PDF, Present a deck (with saved presentations).
+- `x_1040823_template_templater.do?view=present&presentation=<sys_id>` presents a saved presentation directly. "Copy link to present" on the Present page gives this link.
 - **Export with Templater**: a related link on any form, shown only where an active template applies.
 - **Export / present with Templater**: a list action on selected rows.
 
@@ -109,3 +151,5 @@ npm run deploy
 - PDFs use the standard 14 fonts (WinAnsi), so text outside Latin-1 prints as `?`.
 - Images must be PNG or JPEG. The picker flattens and re-encodes anything else in the browser.
 - One render covers at most 500 records, and each related list at most 500 rows.
+- A presentation can have up to 200 custom slides of up to 120 elements each. Its body, pictures included, can be up to 3,000,000 characters.
+- Text on custom slides is not rotated, and shapes have no gradients or shadows. On screen, text wraps by the browser's font metrics and in the PDF by the standard 14 fonts' metrics, so a line can break a word earlier or later in one than in the other.

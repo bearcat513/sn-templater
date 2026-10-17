@@ -6,7 +6,7 @@ import type { PdfTemplate } from '../engine/template'
 import { useElementSize } from '../hooks/useElementSize'
 import { Icon } from '../ui/icons'
 import { IconButton, cx } from '../ui/controls'
-import { paginate } from './paginate'
+import { paginate, type Slide } from './paginate'
 import { SlideView } from './SlideView'
 
 type Props = {
@@ -17,6 +17,12 @@ type Props = {
     onExport: () => void
     /** Opens the record behind a slide on the platform. */
     recordUrl?: (owner: number) => string | null
+    /** A presentation's own running order, hidden slides already left out. Absent is the deck as drawn. */
+    slides?: Slide[]
+    startAt?: number
+    /** Opens the slide builder on this deck. */
+    onEdit?: () => void
+    editLabel?: string
 }
 
 /**
@@ -26,9 +32,20 @@ type Props = {
  * before, Home and End, G for the overview, F for full screen, Esc to leave.
  * In full screen the controls get out of the way until the mouse moves.
  */
-export function Presenter({ template, job, title, onExit, onExport, recordUrl }: Props) {
-    const slides = useMemo(() => paginate(template, job), [template, job])
-    const [index, setIndex] = useState(0)
+export function Presenter({
+    template,
+    job,
+    title,
+    onExit,
+    onExport,
+    recordUrl,
+    slides: arranged,
+    startAt = 0,
+    onEdit,
+    editLabel = 'Edit slides',
+}: Props) {
+    const slides = useMemo(() => arranged ?? paginate(template, job), [arranged, template, job])
+    const [index, setIndex] = useState(startAt)
     const [overview, setOverview] = useState(false)
     const [fullscreen, setFullscreen] = useState(false)
     const [idle, setIdle] = useState(false)
@@ -140,6 +157,7 @@ export function Presenter({ template, job, title, onExit, onExport, recordUrl }:
                     <span className="tp-truncate">{title}</span>
                 </div>
                 <div className="tp-row">
+                    {onEdit && <IconButton icon="layers" label={editLabel} onClick={onEdit} />}
                     <IconButton icon="grid" label="Overview (G)" onClick={() => setOverview(!overview)} />
                     <IconButton icon="download" label="Export as PDF" onClick={onExport} />
                     <IconButton

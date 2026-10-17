@@ -1,0 +1,130 @@
+/* -------------------------------------------------------- the slide canvas */
+
+/*
+ * A custom slide being edited: the sheet itself, drawn exactly as it is
+ * presented, under a layer that takes the mouse and draws the selection.
+ */
+
+.tp-canvas {
+  position: relative;
+  flex-shrink: 0;
+  outline: none;
+  touch-action: none;
+  user-select: none;
+}
+
+.tp-canvas__sheet {
+  pointer-events: none;
+}
+
+.tp-canvas__layer {
+  position: absolute;
+  inset: 0;
+}
+
+.tp-canvas__hit {
+  position: absolute;
+  cursor: move;
+}
+
+.tp-canvas__hit:hover:not(.is-selected) {
+  outline: 1px solid rgba(37, 99, 235, 0.55);
+}
+
+.tp-canvas__line-hit {
+  position: absolute;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.tp-canvas__line-hit line {
+  stroke: transparent;
+  pointer-events: stroke;
+  cursor: move;
+}
+
+.tp-canvas__line-hit:hover line {
+  stroke: rgba(37, 99, 235, 0.25);
+}
+
+.tp-canvas__selection {
+  position: absolute;
+  outline: 1.5px solid #2563eb;
+  pointer-events: none;
+}
+
+.tp-canvas__selection.is-editing {
+  outline-style: dashed;
+}
+
+.tp-canvas__handle {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  margin: -4.5px 0 0 -4.5px;
+  border: 1.5px solid #2563eb;
+  border-radius: 2px;
+  background: #fff;
+  pointer-events: auto;
+}
+
+.tp-canvas__handle--nw { left: 0; top: 0; cursor: nwse-resize; }
+.tp-canvas__handle--n { left: 50%; top: 0; cursor: ns-resize; }
+.tp-canvas__handle--ne { left: 100%; top: 0; cursor: nesw-resize; }
+.tp-canvas__handle--e { left: 100%; top: 50%; cursor: ew-resize; }
+.tp-canvas__handle--se { left: 100%; top: 100%; cursor: nwse-resize; }
+.tp-canvas__handle--s { left: 50%; top: 100%; cursor: ns-resize; }
+.tp-canvas__handle--sw { left: 0; top: 100%; cursor: nesw-resize; }
+.tp-canvas__handle--w { left: 0; top: 50%; cursor: ew-resize; }
+
+.tp-canvas__handle--end {
+  width: 11px;
+  height: 11px;
+  margin: -5.5px 0 0 -5.5px;
+  border-radius: 50%;
+  cursor: crosshair;
+}
+
+.tp-canvas__guide {
+  position: absolute;
+  pointer-events: none;
+  background: #ec4899;
+}
+
+.tp-canvas__guide--x {
+  top: 0;
+  bottom: 0;
+  width: 1px;
+}
+
+.tp-canvas__guide--y {
+  left: 0;
+  right: 0;
+  height: 1px;
+}
+
+.tp-canvas__marquee {
+  position: absolute;
+  border: 1px solid #2563eb;
+  background: rgba(37, 99, 235, 0.08);
+  pointer-events: none;
+}
+
+/* Typing in a shape: laid over its text, in its own face and size. */
+.tp-canvas__text {
+  position: absolute;
+  margin: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  resize: none;
+  overflow: hidden;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+  cursor: text;
+}
+
+.tp-canvas__text::placeholder {
+  color: #9ca3af;
+}

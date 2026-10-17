@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import { log } from '../debug/log'
 
-export type View = 'templates' | 'edit' | 'export' | 'present'
+export type View = 'templates' | 'edit' | 'export' | 'present' | 'build'
 
-const VIEWS: View[] = ['templates', 'edit', 'export', 'present']
+const VIEWS: View[] = ['templates', 'edit', 'export', 'present', 'build']
 
 export type Route = { view: View; params: URLSearchParams }
 
@@ -18,6 +18,7 @@ const TITLES: Record<View, string> = {
     edit: 'Template designer',
     export: 'Export to PDF',
     present: 'Present',
+    build: 'Slide builder',
 }
 
 /** Sets the tab title — or, inside the Next Experience shell, the shell's. */
@@ -30,6 +31,17 @@ export function setPageTitle(title: string) {
         })
     }
     document.title = full
+}
+
+/**
+ * Rewrites the address without moving: for a screen whose record has just
+ * been created, so a reload opens it again — without remounting the view and
+ * losing what is on it.
+ */
+export function replaceUrl(view: View, params: Record<string, string | undefined>) {
+    const search = new URLSearchParams({ view })
+    for (const [key, value] of Object.entries(params)) if (value) search.set(key, value)
+    window.history.replaceState({}, '', `${window.location.pathname}?${search.toString()}`)
 }
 
 /**
