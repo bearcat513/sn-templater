@@ -44,6 +44,7 @@ declare global {
                     'styles/controls.css': {
                         table: 'sys_ux_theme_asset'
                         id: '9f0db9283ec9467881460f071c4796f2'
+                        deleted: true
                     }
                     'template-create': {
                         table: 'sys_security_acl'

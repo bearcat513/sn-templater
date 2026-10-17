@@ -17,6 +17,22 @@ export default async ({ rootDir, config, fs, path, logger, registerExplicitId })
         return
     }
 
+    // The front-end plugins inline a stylesheet into the bundle only while it is
+    // 14 KB or smaller; past that it ships as a separate theme asset (/uxta/…),
+    // which does not load on every instance and leaves its styles missing.
+    // Split a stylesheet before it gets that big.
+    const INLINE_CSS_LIMIT = 14 * 1024
+    const oversized = (await glob(path.join(clientDir, '**', '*.css'), { fs })).filter(
+        (file) => fs.statSync(file).size > INLINE_CSS_LIMIT
+    )
+    if (oversized.length) {
+        throw new Error(
+            `Stylesheets over ${INLINE_CSS_LIMIT} bytes would not be inlined into the bundle: ` +
+                oversized.map((file) => `${path.relative(rootDir, file)} (${fs.statSync(file).size} bytes)`).join(', ') +
+                '. Split them into smaller files.'
+        )
+    }
+
     // This is the destination for the build output
     const staticContentDir = path.join(rootDir, config.staticContent.buildDir)
     // Clean up any previous build output
