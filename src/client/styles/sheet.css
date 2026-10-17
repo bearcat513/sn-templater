@@ -1,0 +1,281 @@
+/* -------------------------------------------------------------- the sheet */
+
+/*
+ * A page of a template drawn in HTML. The paper is laid out at its own size in
+ * points-as-pixels and scaled to fit; nothing in here may depend on the
+ * app's theme, because the sheet is the document, not the app.
+ */
+
+.tp-sheet {
+  position: relative;
+  flex-shrink: 0;
+  overflow: hidden;
+  border-radius: 2px;
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.12),
+    0 6px 24px rgba(0, 0, 0, 0.12);
+  background: #fff;
+}
+
+.tp-sheet__paper {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: top left;
+  overflow: hidden;
+  line-height: 1.35;
+  text-rendering: geometricPrecision;
+  -webkit-font-smoothing: antialiased;
+}
+
+.tp-sheet__paper * {
+  box-sizing: border-box;
+}
+
+.tp-sheet__content {
+  position: absolute;
+  overflow: hidden;
+}
+
+.tp-sheet__flow {
+  transform-origin: top left;
+}
+
+.tp-sheet__text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.tp-sheet__watermark {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  font-weight: 700;
+  white-space: nowrap;
+  pointer-events: none;
+  user-select: none;
+}
+
+.tp-sheet__letterhead {
+  position: absolute;
+  top: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.tp-sheet__rule {
+  position: absolute;
+  border-top: 0.75px solid;
+}
+
+.tp-sheet__footer {
+  position: absolute;
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.tp-sheet__table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.tp-sheet__table th {
+  font-weight: 700;
+}
+
+.tp-sheet__table th,
+.tp-sheet__table td {
+  vertical-align: top;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+/* ------------------------------------------------------------- presenter */
+
+.tp-presenter {
+  position: fixed;
+  inset: 0;
+  z-index: 500;
+  display: flex;
+  flex-direction: column;
+  background: #0b0d12;
+  color: #e5e7eb;
+  animation: tp-fade-in 200ms ease;
+}
+
+.tp-presenter__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--tp-space-3);
+  padding: var(--tp-space-2) var(--tp-space-4);
+  transition: opacity 250ms ease;
+}
+
+.tp-presenter__title {
+  display: flex;
+  align-items: center;
+  gap: var(--tp-space-2);
+  font-weight: 700;
+  min-width: 0;
+}
+
+.tp-presenter .tp-icon-btn {
+  color: #cbd5e1;
+}
+
+.tp-presenter .tp-icon-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.tp-presenter__stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tp-presenter__slide {
+  animation: tp-fade-in 220ms ease;
+}
+
+.tp-presenter__slide .tp-sheet {
+  border-radius: 4px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55);
+}
+
+.tp-presenter__nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 3rem;
+  height: 5rem;
+  border: none;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.05);
+  color: #e5e7eb;
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity 200ms ease,
+    background-color 150ms ease;
+}
+
+.tp-presenter__stage:hover .tp-presenter__nav:not(:disabled),
+.tp-presenter__nav:focus-visible {
+  opacity: 1;
+}
+
+.tp-presenter__nav:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.tp-presenter__nav:disabled {
+  cursor: default;
+}
+
+.tp-presenter__nav--prev {
+  left: var(--tp-space-3);
+}
+
+.tp-presenter__nav--next {
+  right: var(--tp-space-3);
+}
+
+.tp-presenter__overview {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: var(--tp-space-5);
+  align-content: start;
+  padding: var(--tp-space-5);
+}
+
+.tp-presenter__thumb {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--tp-space-2);
+  padding: var(--tp-space-2);
+  border: 2px solid transparent;
+  border-radius: 8px;
+  background: none;
+  color: #cbd5e1;
+  cursor: pointer;
+}
+
+.tp-presenter__thumb:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.tp-presenter__thumb.is-current {
+  border-color: #60a5fa;
+}
+
+.tp-presenter__thumb-label {
+  max-width: 220px;
+  font-size: var(--tp-text-xs);
+}
+
+.tp-presenter__bottom {
+  transition: opacity 250ms ease;
+}
+
+.tp-presenter__progress {
+  height: 3px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.tp-presenter__progress span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #60a5fa, #a78bfa);
+  transition: width 250ms ease;
+}
+
+.tp-presenter__status {
+  display: flex;
+  align-items: center;
+  gap: var(--tp-space-4);
+  padding: var(--tp-space-2) var(--tp-space-4);
+  font-size: var(--tp-text-sm);
+  color: #94a3b8;
+}
+
+.tp-presenter__link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  color: #93c5fd;
+  white-space: nowrap;
+}
+
+.tp-presenter__count {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: #e5e7eb;
+}
+
+.tp-presenter.is-idle {
+  cursor: none;
+}
+
+.tp-presenter.is-idle .tp-presenter__top,
+.tp-presenter.is-idle .tp-presenter__bottom {
+  opacity: 0;
+}

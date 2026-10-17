@@ -1,0 +1,288 @@
+{
+  "page": {
+    "size": "A4",
+    "margins": {
+      "top": 56,
+      "right": 48,
+      "bottom": 56,
+      "left": 48
+    },
+    "family": "helvetica",
+    "fontSize": 10,
+    "textColor": "#18181b",
+    "mutedColor": "#71717a",
+    "accentColor": "#1d4ed8"
+  },
+  "style": {
+    "lineHeight": 1.35,
+    "paragraphSpacing": 4,
+    "headingScale": 1.9,
+    "ruleColor": "#d4d4d8",
+    "table": {
+      "headerFill": "#eff6ff",
+      "headerUppercase": true,
+      "zebra": "#fafafa",
+      "gridColor": "#e4e4e7",
+      "rowLines": true,
+      "cellPadding": 5
+    }
+  },
+  "blocks": [
+    {
+      "type": "text",
+      "text": "CHANGE REQUEST",
+      "size": 8.5,
+      "bold": true,
+      "color": "#1d4ed8",
+      "spaceAfter": 3
+    },
+    {
+      "type": "heading",
+      "text": "{{record.short_description}}",
+      "size": 20,
+      "color": "#18181b",
+      "spaceAfter": 4
+    },
+    {
+      "type": "text",
+      "text": "{{record.number}} · {{record.type}} change · Requested by {{record.requested_by}}",
+      "size": 9.5,
+      "color": "#71717a",
+      "spaceAfter": 14
+    },
+    {
+      "type": "stats",
+      "items": [
+        {
+          "label": "Risk",
+          "value": "{{record.risk}}"
+        },
+        {
+          "label": "Impact",
+          "value": "{{record.impact}}"
+        },
+        {
+          "label": "State",
+          "value": "{{record.state}}"
+        },
+        {
+          "label": "Approval",
+          "value": "{{record.approval}}"
+        }
+      ]
+    },
+    {
+      "type": "columns",
+      "columns": [
+        {
+          "heading": "Planned window",
+          "text": "{{record.start_date}}\nto {{record.end_date}}"
+        },
+        {
+          "heading": "Ownership",
+          "text": "{{record.assignment_group}}\n{{record.assigned_to}}"
+        },
+        {
+          "heading": "Affects",
+          "text": "{{record.business_service}}\n{{record.cmdb_ci}}"
+        }
+      ]
+    },
+    {
+      "type": "divider"
+    },
+    {
+      "type": "fields",
+      "rows": [
+        {
+          "label": "Category",
+          "value": "{{record.category}}"
+        },
+        {
+          "label": "Priority",
+          "value": "{{record.priority}}"
+        },
+        {
+          "label": "Conflict status",
+          "value": "{{record.conflict_status}}"
+        },
+        {
+          "label": "Opened",
+          "value": "{{record.opened_at}}"
+        },
+        {
+          "label": "Opened by",
+          "value": "{{record.opened_by}}"
+        }
+      ]
+    },
+    {
+      "type": "spacer",
+      "height": 6
+    },
+    {
+      "type": "heading",
+      "text": "Description",
+      "size": 12,
+      "spaceAfter": 6
+    },
+    {
+      "type": "text",
+      "text": "{{record.description}}",
+      "spaceAfter": 12
+    },
+    {
+      "type": "heading",
+      "text": "Plans",
+      "size": 12,
+      "spaceAfter": 6
+    },
+    {
+      "type": "fields",
+      "rows": [
+        {
+          "label": "Justification",
+          "value": "{{record.justification}}"
+        },
+        {
+          "label": "Implementation plan",
+          "value": "{{record.implementation_plan}}"
+        },
+        {
+          "label": "Risk and impact analysis",
+          "value": "{{record.risk_impact_analysis}}"
+        },
+        {
+          "label": "Backout plan",
+          "value": "{{record.backout_plan}}"
+        },
+        {
+          "label": "Test plan",
+          "value": "{{record.test_plan}}"
+        }
+      ]
+    },
+    {
+      "type": "spacer",
+      "height": 8
+    },
+    {
+      "type": "relatedList",
+      "title": "Change tasks ({{list.count}})",
+      "table": "change_task",
+      "field": "change_request",
+      "orderBy": "planned_start_date",
+      "limit": 50,
+      "columns": [
+        {
+          "field": "number",
+          "header": "Number",
+          "width": 17
+        },
+        {
+          "field": "short_description",
+          "header": "Short description",
+          "width": 31
+        },
+        {
+          "field": "state",
+          "header": "State",
+          "width": 11
+        },
+        {
+          "field": "assigned_to",
+          "header": "Assigned to",
+          "width": 19
+        },
+        {
+          "field": "planned_start_date",
+          "header": "Planned start",
+          "width": 22
+        }
+      ],
+      "emptyText": "No change tasks."
+    },
+    {
+      "type": "relatedList",
+      "title": "Approvals ({{list.count}})",
+      "table": "sysapproval_approver",
+      "field": "sysapproval",
+      "orderBy": "sys_created_on",
+      "limit": 50,
+      "columns": [
+        {
+          "field": "approver",
+          "header": "Approver",
+          "width": 40
+        },
+        {
+          "field": "state",
+          "header": "State",
+          "width": 25
+        },
+        {
+          "field": "sys_updated_on",
+          "header": "Updated",
+          "width": 35
+        }
+      ],
+      "emptyText": "No approvals requested yet."
+    },
+    {
+      "type": "relatedList",
+      "title": "Affected CIs ({{list.count}})",
+      "table": "task_ci",
+      "field": "task",
+      "limit": 50,
+      "columns": [
+        {
+          "field": "ci_item",
+          "header": "Configuration item",
+          "width": 60
+        },
+        {
+          "field": "ci_item.sys_class_name",
+          "header": "Class",
+          "width": 40
+        }
+      ],
+      "emptyText": "No affected CIs recorded."
+    },
+    {
+      "type": "relatedList",
+      "title": "Impacted services ({{list.count}})",
+      "table": "task_cmdb_ci_service",
+      "field": "task",
+      "limit": 50,
+      "columns": [
+        {
+          "field": "cmdb_ci_service",
+          "header": "Service",
+          "width": 100
+        }
+      ],
+      "emptyText": "No impacted services recorded."
+    },
+    {
+      "type": "signatures",
+      "parties": [
+        {
+          "label": "Change manager",
+          "caption": "Name and date"
+        },
+        {
+          "label": "Implementer",
+          "caption": "Name and date"
+        },
+        {
+          "label": "CAB chair",
+          "caption": "Name and date"
+        }
+      ]
+    }
+  ],
+  "footer": {
+    "text": "{{record.number}} · Printed {{now.datetime}} by {{user.name}}",
+    "showPageNumbers": true
+  }
+}

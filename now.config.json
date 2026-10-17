@@ -1,0 +1,7 @@
+{
+    "scope": "x_1040823_template",
+    "scopeId": "0176755acb714f3f91d96030969bc95b",
+    "name": "templater",
+    "tsconfigPath": "./src/server/tsconfig.json",
+    "packageSourceCodeOnInstance": true
+}

@@ -1,0 +1,72 @@
+/*
+ * Design tokens.
+ *
+ * Every value is an alias over a Horizon token with a fallback, so the page
+ * follows the instance's theme — including dark mode — when it has one, and
+ * still looks finished when it does not.
+ */
+:root {
+  /* Surfaces */
+  --tp-surface: rgb(var(--now-color_background--primary, 255, 255, 255));
+  --tp-surface-raised: rgb(var(--now-container-card--background-color, 255, 255, 255));
+  --tp-surface-sunken: rgb(var(--now-color_background--secondary, 245, 246, 247));
+  --tp-surface-hover: rgba(var(--now-color--primary-1, 0, 128, 163), 0.06);
+  --tp-surface-selected: rgba(var(--now-color--primary-1, 0, 128, 163), 0.1);
+  --tp-canvas: rgb(var(--now-color_background--tertiary, 232, 235, 237));
+
+  /* Borders */
+  --tp-border: rgb(var(--now-container--border-color, 207, 213, 215));
+  --tp-border-strong: rgb(var(--now-form-control-input--primary--border-color, 135, 147, 152));
+
+  /* Text */
+  --tp-text: rgb(var(--now-color_text--primary, 16, 23, 26));
+  --tp-text-muted: rgb(var(--now-color_text--secondary, 75, 85, 89));
+  --tp-text-subtle: rgb(var(--now-color_text--tertiary, 110, 120, 125));
+  --tp-text-inverse: rgb(var(--now-actionable_label--primary--color, 255, 255, 255));
+
+  /* Action */
+  --tp-primary: rgb(var(--now-actionable--primary--background-color, 0, 113, 143));
+  --tp-primary-hover: rgb(var(--now-actionable--primary--background-color--hover, 0, 94, 120));
+  --tp-primary-active: rgb(var(--now-actionable--primary--background-color--active, 0, 76, 97));
+  --tp-primary-tint: rgba(var(--now-actionable--primary--background-color, 0, 113, 143), 0.1);
+  --tp-focus: rgb(var(--now-color_focus-ring, 53, 147, 37));
+
+  /* Status */
+  --tp-critical: rgb(var(--now-color_alert--critical-3, 200, 30, 50));
+  --tp-critical-bg: rgb(var(--now-alert--critical--background-color, 251, 230, 232));
+  --tp-critical-border: rgb(var(--now-alert--critical--border-color, 235, 160, 168));
+  --tp-warning: rgb(var(--now-color_alert--warning-3, 140, 95, 0));
+  --tp-warning-bg: rgb(var(--now-alert--warning--background-color, 252, 243, 214));
+  --tp-warning-border: rgb(var(--now-alert--warning--border-color, 221, 182, 101));
+  --tp-info-bg: rgb(var(--now-alert--info--background-color, 228, 240, 250));
+  --tp-info-border: rgb(var(--now-alert--info--border-color, 150, 190, 225));
+  --tp-positive: rgb(var(--now-color_alert--positive-3, 46, 125, 50));
+  --tp-positive-bg: rgb(var(--now-alert--positive--background-color, 228, 244, 228));
+
+  /* Shape */
+  --tp-radius-sm: var(--now-static-border-radius--sm, 3px);
+  --tp-radius: var(--now-actionable--border-radius, 6px);
+  --tp-radius-lg: var(--now-container--border-radius, 10px);
+  --tp-shadow-sm: var(--now-static-drop-shadow--sm, 0 1px 2px rgba(0, 0, 0, 0.08));
+  --tp-shadow: var(--now-static-drop-shadow--md, 0 4px 14px rgba(0, 0, 0, 0.12));
+  --tp-shadow-lg: var(--now-static-drop-shadow--lg, 0 12px 40px rgba(0, 0, 0, 0.22));
+
+  /* Spacing */
+  --tp-space-1: var(--now-static-space--xs, 0.25rem);
+  --tp-space-2: var(--now-static-space--sm, 0.5rem);
+  --tp-space-3: var(--now-static-space--md, 0.75rem);
+  --tp-space-4: var(--now-static-space--lg, 1rem);
+  --tp-space-5: var(--now-static-space--xl, 1.5rem);
+  --tp-space-6: var(--now-static-space--xxl, 2rem);
+
+  /* Type */
+  --tp-font: var(--now-font-family, "Lato", "Helvetica Neue", Arial, sans-serif);
+  --tp-font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --tp-text-xs: 0.75rem;
+  --tp-text-sm: 0.8125rem;
+  --tp-text-md: 0.875rem;
+  --tp-text-lg: 1.125rem;
+  --tp-text-xl: 1.5rem;
+
+  --tp-header-height: 3.25rem;
+}

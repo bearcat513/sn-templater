@@ -1,0 +1,160 @@
+{
+  "page": {
+    "size": "Slide16x9",
+    "margins": {
+      "top": 48,
+      "right": 56,
+      "bottom": 44,
+      "left": 56
+    },
+    "family": "helvetica",
+    "fontSize": 16,
+    "textColor": "#e2e8f0",
+    "mutedColor": "#94a3b8",
+    "accentColor": "#fb7185",
+    "background": "#0f172a"
+  },
+  "style": {
+    "lineHeight": 1.3,
+    "paragraphSpacing": 8,
+    "headingScale": 2,
+    "ruleColor": "#334155",
+    "table": {
+      "headerFill": "#1e293b",
+      "headerColor": "#cbd5e1",
+      "gridColor": "#334155",
+      "rowLines": true,
+      "cellPadding": 6
+    }
+  },
+  "cover": [
+    {
+      "type": "spacer",
+      "height": 104
+    },
+    {
+      "type": "text",
+      "text": "PRIORITY 1 & 2 INCIDENTS",
+      "size": 14,
+      "bold": true,
+      "color": "#fb7185",
+      "spaceAfter": 6
+    },
+    {
+      "type": "heading",
+      "text": "{{deck.title}}",
+      "size": 44,
+      "color": "#f8fafc",
+      "spaceAfter": 8
+    },
+    {
+      "type": "text",
+      "text": "{{deck.count}} incidents · {{now.date}}",
+      "size": 18,
+      "color": "#94a3b8"
+    },
+    {
+      "type": "spacer",
+      "height": 20
+    },
+    {
+      "type": "divider",
+      "color": "#fb7185",
+      "thickness": 3
+    },
+    {
+      "type": "text",
+      "text": "Prepared by {{user.name}}",
+      "size": 14,
+      "color": "#94a3b8"
+    }
+  ],
+  "blocks": [
+    {
+      "type": "text",
+      "text": "{{record.number}} · {{record.priority}}",
+      "size": 14,
+      "bold": true,
+      "color": "#fb7185",
+      "spaceAfter": 2
+    },
+    {
+      "type": "heading",
+      "text": "{{record.short_description}}",
+      "size": 28,
+      "color": "#f8fafc",
+      "spaceAfter": 16
+    },
+    {
+      "type": "stats",
+      "items": [
+        {
+          "label": "State",
+          "value": "{{record.state}}"
+        },
+        {
+          "label": "Impact",
+          "value": "{{record.impact}}"
+        },
+        {
+          "label": "Assignment group",
+          "value": "{{record.assignment_group}}"
+        }
+      ]
+    },
+    {
+      "type": "columns",
+      "gap": 24,
+      "columns": [
+        {
+          "heading": "Service",
+          "text": "{{record.business_service}}\n{{record.cmdb_ci}}"
+        },
+        {
+          "heading": "People",
+          "text": "Caller: {{record.caller_id}}\nAssigned: {{record.assigned_to}}"
+        },
+        {
+          "heading": "Timeline",
+          "text": "Opened {{record.opened_at}}\nUpdated {{record.sys_updated_on}}"
+        }
+      ]
+    },
+    {
+      "type": "spacer",
+      "height": 6
+    },
+    {
+      "type": "relatedList",
+      "title": "Open tasks ({{list.count}})",
+      "table": "incident_task",
+      "field": "incident",
+      "query": "active=true",
+      "orderBy": "number",
+      "limit": 4,
+      "fontSize": 12,
+      "columns": [
+        {
+          "field": "number",
+          "header": "Number",
+          "width": 20
+        },
+        {
+          "field": "short_description",
+          "header": "Short description",
+          "width": 52
+        },
+        {
+          "field": "assigned_to",
+          "header": "Assigned to",
+          "width": 28
+        }
+      ],
+      "emptyText": "No open tasks."
+    }
+  ],
+  "footer": {
+    "text": "{{deck.title}} · {{now.date}}",
+    "showPageNumbers": false
+  }
+}

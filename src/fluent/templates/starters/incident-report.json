@@ -1,0 +1,289 @@
+{
+  "page": {
+    "size": "A4",
+    "margins": {
+      "top": 56,
+      "right": 48,
+      "bottom": 56,
+      "left": 48
+    },
+    "family": "helvetica",
+    "fontSize": 10,
+    "textColor": "#18181b",
+    "mutedColor": "#71717a",
+    "accentColor": "#be123c"
+  },
+  "style": {
+    "lineHeight": 1.35,
+    "paragraphSpacing": 4,
+    "headingScale": 1.9,
+    "ruleColor": "#d4d4d8",
+    "table": {
+      "headerFill": "#fff1f2",
+      "headerUppercase": true,
+      "zebra": "#fafafa",
+      "gridColor": "#e4e4e7",
+      "rowLines": true,
+      "cellPadding": 5
+    }
+  },
+  "blocks": [
+    {
+      "type": "text",
+      "text": "INCIDENT REPORT",
+      "size": 8.5,
+      "bold": true,
+      "color": "#be123c",
+      "spaceAfter": 3
+    },
+    {
+      "type": "heading",
+      "text": "{{record.short_description}}",
+      "size": 20,
+      "color": "#18181b",
+      "spaceAfter": 4
+    },
+    {
+      "type": "text",
+      "text": "{{record.number}} · Opened {{record.opened_at}} by {{record.opened_by}} via {{record.contact_type}}",
+      "size": 9.5,
+      "color": "#71717a",
+      "spaceAfter": 14
+    },
+    {
+      "type": "stats",
+      "items": [
+        {
+          "label": "Priority",
+          "value": "{{record.priority}}"
+        },
+        {
+          "label": "State",
+          "value": "{{record.state}}"
+        },
+        {
+          "label": "Category",
+          "value": "{{record.category}}"
+        }
+      ]
+    },
+    {
+      "type": "columns",
+      "columns": [
+        {
+          "heading": "Caller",
+          "text": "{{record.caller_id}}\n{{record.caller_id.email}}\n{{record.caller_id.phone}}"
+        },
+        {
+          "heading": "Assignment",
+          "text": "{{record.assignment_group}}\n{{record.assigned_to}}"
+        },
+        {
+          "heading": "Service",
+          "text": "{{record.business_service}}\n{{record.cmdb_ci}}"
+        }
+      ]
+    },
+    {
+      "type": "divider"
+    },
+    {
+      "type": "fields",
+      "rows": [
+        {
+          "label": "Impact",
+          "value": "{{record.impact}}"
+        },
+        {
+          "label": "Urgency",
+          "value": "{{record.urgency}}"
+        },
+        {
+          "label": "Subcategory",
+          "value": "{{record.subcategory}}"
+        },
+        {
+          "label": "Location",
+          "value": "{{record.location}}"
+        },
+        {
+          "label": "Parent incident",
+          "value": "{{record.parent_incident}}"
+        },
+        {
+          "label": "Last updated",
+          "value": "{{record.sys_updated_on}}"
+        }
+      ]
+    },
+    {
+      "type": "spacer",
+      "height": 6
+    },
+    {
+      "type": "heading",
+      "text": "Description",
+      "size": 12,
+      "spaceAfter": 6
+    },
+    {
+      "type": "text",
+      "text": "{{record.description}}",
+      "spaceAfter": 12
+    },
+    {
+      "type": "heading",
+      "text": "Resolution",
+      "size": 12,
+      "spaceAfter": 6
+    },
+    {
+      "type": "fields",
+      "rows": [
+        {
+          "label": "Resolution code",
+          "value": "{{record.close_code}}"
+        },
+        {
+          "label": "Resolved by",
+          "value": "{{record.resolved_by}}"
+        },
+        {
+          "label": "Resolved",
+          "value": "{{record.resolved_at}}"
+        },
+        {
+          "label": "Resolution notes",
+          "value": "{{record.close_notes}}"
+        }
+      ]
+    },
+    {
+      "type": "spacer",
+      "height": 8
+    },
+    {
+      "type": "relatedList",
+      "title": "Incident tasks ({{list.count}})",
+      "table": "incident_task",
+      "field": "incident",
+      "orderBy": "number",
+      "limit": 50,
+      "columns": [
+        {
+          "field": "number",
+          "header": "Number",
+          "width": 16
+        },
+        {
+          "field": "short_description",
+          "header": "Short description",
+          "width": 44
+        },
+        {
+          "field": "state",
+          "header": "State",
+          "width": 16
+        },
+        {
+          "field": "assigned_to",
+          "header": "Assigned to",
+          "width": 24
+        }
+      ],
+      "emptyText": "No incident tasks."
+    },
+    {
+      "type": "relatedList",
+      "title": "SLAs ({{list.count}})",
+      "table": "task_sla",
+      "field": "task",
+      "orderBy": "start_time",
+      "limit": 20,
+      "columns": [
+        {
+          "field": "sla",
+          "header": "SLA",
+          "width": 30
+        },
+        {
+          "field": "stage",
+          "header": "Stage",
+          "width": 14
+        },
+        {
+          "field": "has_breached",
+          "header": "Breached",
+          "width": 15
+        },
+        {
+          "field": "planned_end_time",
+          "header": "Breach time",
+          "width": 25
+        },
+        {
+          "field": "business_percentage",
+          "header": "Elapsed %",
+          "width": 16,
+          "align": "right"
+        }
+      ],
+      "emptyText": "No SLAs attached."
+    },
+    {
+      "type": "relatedList",
+      "title": "Affected CIs ({{list.count}})",
+      "table": "task_ci",
+      "field": "task",
+      "limit": 50,
+      "columns": [
+        {
+          "field": "ci_item",
+          "header": "Configuration item",
+          "width": 60
+        },
+        {
+          "field": "ci_item.sys_class_name",
+          "header": "Class",
+          "width": 40
+        }
+      ],
+      "emptyText": "No affected CIs recorded."
+    },
+    {
+      "type": "relatedList",
+      "title": "Child incidents ({{list.count}})",
+      "table": "incident",
+      "field": "parent_incident",
+      "orderBy": "number",
+      "limit": 50,
+      "columns": [
+        {
+          "field": "number",
+          "header": "Number",
+          "width": 16
+        },
+        {
+          "field": "short_description",
+          "header": "Short description",
+          "width": 44
+        },
+        {
+          "field": "priority",
+          "header": "Priority",
+          "width": 18
+        },
+        {
+          "field": "state",
+          "header": "State",
+          "width": 22
+        }
+      ],
+      "emptyText": "No child incidents."
+    }
+  ],
+  "footer": {
+    "text": "{{record.number}} · Printed {{now.datetime}} by {{user.name}}",
+    "showPageNumbers": true
+  }
+}

@@ -1,0 +1,29 @@
+{
+    "name": "templater",
+    "version": "0.0.1",
+    "description": "",
+    "license": "UNLICENSED",
+    "imports": {
+        "#now:*": "./@types/servicenow/fluent/*/index.js"
+    },
+    "scripts": {
+        "starters": "node scripts/build-starters.mjs",
+        "build": "npm run starters && now-sdk build",
+        "deploy": "now-sdk install",
+        "transform": "now-sdk transform",
+        "types": "now-sdk dependencies",
+        "dev": "now-sdk run dev"
+    },
+    "devDependencies": {
+        "@servicenow/sdk": "4.13.6",
+        "@servicenow/glide": "27.0.5",
+        "typescript": "5.5.4",
+        "@servicenow/isomorphic-rollup": "^1.3.11",
+        "@types/react": "19.x",
+        "@types/react-dom": "19.x"
+    },
+    "dependencies": {
+        "react": "19.x",
+        "react-dom": "19.x"
+    }
+}

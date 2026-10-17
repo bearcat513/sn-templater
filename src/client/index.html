@@ -1,0 +1,15 @@
+<html class="-polaris">
+<head>
+  <title>Templater</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <!-- Initialize globals and Include ServiceNow's required scripts -->
+  <sdk:now-ux-globals></sdk:now-ux-globals>
+
+  <!-- React entry point; uxpcb keeps a stale bundle from being served after an install -->
+  <script src="main.tsx?uxpcb=$[UxFrameworkScriptables.getFlushTimestamp()]" type="module"></script>
+</head>
+<body>
+  <div id="root"></div>
+</body>
+</html>

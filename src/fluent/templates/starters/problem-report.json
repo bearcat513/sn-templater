@@ -1,0 +1,208 @@
+{
+  "page": {
+    "size": "A4",
+    "margins": {
+      "top": 56,
+      "right": 48,
+      "bottom": 56,
+      "left": 48
+    },
+    "family": "helvetica",
+    "fontSize": 10,
+    "textColor": "#18181b",
+    "mutedColor": "#71717a",
+    "accentColor": "#b45309"
+  },
+  "style": {
+    "lineHeight": 1.35,
+    "paragraphSpacing": 4,
+    "headingScale": 1.9,
+    "ruleColor": "#d4d4d8",
+    "table": {
+      "headerFill": "#fffbeb",
+      "headerUppercase": true,
+      "zebra": "#fafafa",
+      "gridColor": "#e4e4e7",
+      "rowLines": true,
+      "cellPadding": 5
+    }
+  },
+  "blocks": [
+    {
+      "type": "text",
+      "text": "PROBLEM REPORT",
+      "size": 8.5,
+      "bold": true,
+      "color": "#b45309",
+      "spaceAfter": 3
+    },
+    {
+      "type": "heading",
+      "text": "{{record.short_description}}",
+      "size": 20,
+      "color": "#18181b",
+      "spaceAfter": 4
+    },
+    {
+      "type": "text",
+      "text": "{{record.number}} · Opened {{record.opened_at}} by {{record.opened_by}}",
+      "size": 9.5,
+      "color": "#71717a",
+      "spaceAfter": 14
+    },
+    {
+      "type": "stats",
+      "items": [
+        {
+          "label": "State",
+          "value": "{{record.state}}"
+        },
+        {
+          "label": "Priority",
+          "value": "{{record.priority}}"
+        },
+        {
+          "label": "Category",
+          "value": "{{record.category}}"
+        }
+      ]
+    },
+    {
+      "type": "columns",
+      "columns": [
+        {
+          "heading": "Service",
+          "text": "{{record.business_service}}\n{{record.cmdb_ci}}"
+        },
+        {
+          "heading": "Assignment",
+          "text": "{{record.assignment_group}}\n{{record.assigned_to}}"
+        },
+        {
+          "heading": "First reported by",
+          "text": "{{record.first_reported_by_task}}"
+        }
+      ]
+    },
+    {
+      "type": "divider"
+    },
+    {
+      "type": "heading",
+      "text": "Description",
+      "size": 12,
+      "spaceAfter": 6
+    },
+    {
+      "type": "text",
+      "text": "{{record.description}}",
+      "spaceAfter": 12
+    },
+    {
+      "type": "heading",
+      "text": "Root cause and fix",
+      "size": 12,
+      "spaceAfter": 6
+    },
+    {
+      "type": "fields",
+      "rows": [
+        {
+          "label": "Known error",
+          "value": "{{record.known_error}}"
+        },
+        {
+          "label": "Workaround",
+          "value": "{{record.workaround}}"
+        },
+        {
+          "label": "Cause",
+          "value": "{{record.cause_notes}}"
+        },
+        {
+          "label": "Fix",
+          "value": "{{record.fix_notes}}"
+        },
+        {
+          "label": "Resolution code",
+          "value": "{{record.resolution_code}}"
+        }
+      ]
+    },
+    {
+      "type": "spacer",
+      "height": 8
+    },
+    {
+      "type": "relatedList",
+      "title": "Problem tasks ({{list.count}})",
+      "table": "problem_task",
+      "field": "problem",
+      "orderBy": "number",
+      "limit": 50,
+      "columns": [
+        {
+          "field": "number",
+          "header": "Number",
+          "width": 17
+        },
+        {
+          "field": "short_description",
+          "header": "Short description",
+          "width": 39
+        },
+        {
+          "field": "problem_task_type",
+          "header": "Type",
+          "width": 14
+        },
+        {
+          "field": "state",
+          "header": "State",
+          "width": 12
+        },
+        {
+          "field": "assigned_to",
+          "header": "Assigned to",
+          "width": 18
+        }
+      ],
+      "emptyText": "No problem tasks."
+    },
+    {
+      "type": "relatedList",
+      "title": "Duplicates ({{list.count}})",
+      "table": "problem",
+      "field": "duplicate_of",
+      "orderBy": "number",
+      "limit": 50,
+      "columns": [
+        {
+          "field": "number",
+          "header": "Number",
+          "width": 16
+        },
+        {
+          "field": "short_description",
+          "header": "Short description",
+          "width": 50
+        },
+        {
+          "field": "state",
+          "header": "State",
+          "width": 16
+        },
+        {
+          "field": "opened_at",
+          "header": "Opened",
+          "width": 18
+        }
+      ],
+      "emptyText": "No problems were closed as duplicates of this one."
+    }
+  ],
+  "footer": {
+    "text": "{{record.number}} · Printed {{now.datetime}} by {{user.name}}",
+    "showPageNumbers": true
+  }
+}

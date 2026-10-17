@@ -1,0 +1,159 @@
+{
+  "page": {
+    "size": "Slide16x9",
+    "margins": {
+      "top": 48,
+      "right": 56,
+      "bottom": 44,
+      "left": 56
+    },
+    "family": "helvetica",
+    "fontSize": 16,
+    "textColor": "#0f172a",
+    "mutedColor": "#64748b",
+    "accentColor": "#2563eb",
+    "background": "#ffffff"
+  },
+  "style": {
+    "lineHeight": 1.3,
+    "paragraphSpacing": 8,
+    "headingScale": 2,
+    "ruleColor": "#e2e8f0",
+    "table": {
+      "headerFill": "#f1f5f9",
+      "zebra": "#f8fafc",
+      "gridColor": "#e2e8f0",
+      "rowLines": true,
+      "cellPadding": 6
+    }
+  },
+  "cover": [
+    {
+      "type": "spacer",
+      "height": 104
+    },
+    {
+      "type": "text",
+      "text": "CHANGE ADVISORY BOARD",
+      "size": 14,
+      "bold": true,
+      "color": "#2563eb",
+      "spaceAfter": 6
+    },
+    {
+      "type": "heading",
+      "text": "{{deck.title}}",
+      "size": 44,
+      "color": "#0f172a",
+      "spaceAfter": 8
+    },
+    {
+      "type": "text",
+      "text": "{{deck.count}} changes awaiting approval · {{now.date}}",
+      "size": 18,
+      "color": "#64748b"
+    },
+    {
+      "type": "spacer",
+      "height": 20
+    },
+    {
+      "type": "divider",
+      "color": "#2563eb",
+      "thickness": 3
+    },
+    {
+      "type": "text",
+      "text": "Prepared by {{user.name}}",
+      "size": 14,
+      "color": "#64748b"
+    }
+  ],
+  "blocks": [
+    {
+      "type": "text",
+      "text": "{{record.number}} · {{record.type}} change",
+      "size": 14,
+      "bold": true,
+      "color": "#2563eb",
+      "spaceAfter": 2
+    },
+    {
+      "type": "heading",
+      "text": "{{record.short_description}}",
+      "size": 28,
+      "color": "#0f172a",
+      "spaceAfter": 16
+    },
+    {
+      "type": "stats",
+      "items": [
+        {
+          "label": "Risk",
+          "value": "{{record.risk}}"
+        },
+        {
+          "label": "Impact",
+          "value": "{{record.impact}}"
+        },
+        {
+          "label": "State",
+          "value": "{{record.state}}"
+        }
+      ]
+    },
+    {
+      "type": "columns",
+      "gap": 24,
+      "columns": [
+        {
+          "heading": "Window",
+          "text": "{{record.start_date}}\nto {{record.end_date}}"
+        },
+        {
+          "heading": "Owner",
+          "text": "{{record.assignment_group}}\n{{record.assigned_to}}"
+        },
+        {
+          "heading": "Affects",
+          "text": "{{record.business_service}}\n{{record.cmdb_ci}}"
+        }
+      ]
+    },
+    {
+      "type": "spacer",
+      "height": 6
+    },
+    {
+      "type": "relatedList",
+      "title": "Approvals ({{list.count}})",
+      "table": "sysapproval_approver",
+      "field": "sysapproval",
+      "orderBy": "sys_created_on",
+      "limit": 4,
+      "fontSize": 12,
+      "columns": [
+        {
+          "field": "approver",
+          "header": "Approver",
+          "width": 46
+        },
+        {
+          "field": "state",
+          "header": "State",
+          "width": 24
+        },
+        {
+          "field": "sys_updated_on",
+          "header": "Updated",
+          "width": 30
+        }
+      ],
+      "emptyText": "No approvals requested yet."
+    }
+  ],
+  "footer": {
+    "text": "{{deck.title}} · {{now.date}}",
+    "showPageNumbers": false
+  }
+}

@@ -1,0 +1,182 @@
+{
+  "page": {
+    "size": "A4",
+    "margins": {
+      "top": 56,
+      "right": 48,
+      "bottom": 56,
+      "left": 48
+    },
+    "family": "helvetica",
+    "fontSize": 10,
+    "textColor": "#18181b",
+    "mutedColor": "#71717a",
+    "accentColor": "#047857"
+  },
+  "style": {
+    "lineHeight": 1.35,
+    "paragraphSpacing": 4,
+    "headingScale": 1.9,
+    "ruleColor": "#d4d4d8",
+    "table": {
+      "headerFill": "#ecfdf5",
+      "headerUppercase": true,
+      "zebra": "#fafafa",
+      "gridColor": "#e4e4e7",
+      "rowLines": true,
+      "cellPadding": 5
+    }
+  },
+  "blocks": [
+    {
+      "type": "text",
+      "text": "REQUESTED ITEM",
+      "size": 8.5,
+      "bold": true,
+      "color": "#047857",
+      "spaceAfter": 3
+    },
+    {
+      "type": "heading",
+      "text": "{{record.cat_item}}",
+      "size": 20,
+      "color": "#18181b",
+      "spaceAfter": 4
+    },
+    {
+      "type": "text",
+      "text": "{{record.number}} · Request {{record.request}} · Opened {{record.opened_at}} by {{record.opened_by}}",
+      "size": 9.5,
+      "color": "#71717a",
+      "spaceAfter": 14
+    },
+    {
+      "type": "stats",
+      "items": [
+        {
+          "label": "Stage",
+          "value": "{{record.stage}}"
+        },
+        {
+          "label": "State",
+          "value": "{{record.state}}"
+        },
+        {
+          "label": "Approval",
+          "value": "{{record.approval}}"
+        },
+        {
+          "label": "Quantity",
+          "value": "{{record.quantity}}"
+        }
+      ]
+    },
+    {
+      "type": "columns",
+      "columns": [
+        {
+          "heading": "Requested for",
+          "text": "{{record.request.requested_for}}\n{{record.request.requested_for.email}}"
+        },
+        {
+          "heading": "Fulfilment",
+          "text": "{{record.assignment_group}}\n{{record.assigned_to}}"
+        },
+        {
+          "heading": "Due",
+          "text": "{{record.due_date}}"
+        }
+      ]
+    },
+    {
+      "type": "divider"
+    },
+    {
+      "type": "fields",
+      "rows": [
+        {
+          "label": "Short description",
+          "value": "{{record.short_description}}"
+        },
+        {
+          "label": "Price",
+          "value": "{{record.price}}"
+        },
+        {
+          "label": "Last updated",
+          "value": "{{record.sys_updated_on}}"
+        }
+      ]
+    },
+    {
+      "type": "spacer",
+      "height": 8
+    },
+    {
+      "type": "relatedList",
+      "title": "Catalog tasks ({{list.count}})",
+      "table": "sc_task",
+      "field": "request_item",
+      "orderBy": "number",
+      "limit": 50,
+      "columns": [
+        {
+          "field": "number",
+          "header": "Number",
+          "width": 18
+        },
+        {
+          "field": "short_description",
+          "header": "Short description",
+          "width": 34
+        },
+        {
+          "field": "state",
+          "header": "State",
+          "width": 15
+        },
+        {
+          "field": "assignment_group",
+          "header": "Group",
+          "width": 17
+        },
+        {
+          "field": "assigned_to",
+          "header": "Assigned to",
+          "width": 16
+        }
+      ],
+      "emptyText": "No catalog tasks yet."
+    },
+    {
+      "type": "relatedList",
+      "title": "Approvals ({{list.count}})",
+      "table": "sysapproval_approver",
+      "field": "sysapproval",
+      "orderBy": "sys_created_on",
+      "limit": 50,
+      "columns": [
+        {
+          "field": "approver",
+          "header": "Approver",
+          "width": 40
+        },
+        {
+          "field": "state",
+          "header": "State",
+          "width": 25
+        },
+        {
+          "field": "sys_updated_on",
+          "header": "Updated",
+          "width": 35
+        }
+      ],
+      "emptyText": "No approvals."
+    }
+  ],
+  "footer": {
+    "text": "{{record.number}} · Printed {{now.datetime}} by {{user.name}}",
+    "showPageNumbers": true
+  }
+}
