@@ -3,6 +3,7 @@ import { CALLOUT_TONES, type BlockAlign, type CalloutTone, type ListStyle, type 
 import type { TableSchema } from '../services/schema'
 import { Button, ColorField, Field, IconButton, Input, NumberInput, Segmented, Select, Switch } from '../ui/controls'
 import { FieldPicker } from './FieldPicker'
+import { ChartFields } from './ChartFields'
 import { ImagePicker } from './ImagePicker'
 import { ReferenceFields } from './ReferenceFields'
 import { RelatedListFields } from './RelatedListFields'
@@ -296,6 +297,9 @@ export function BlockFields({ block, schema, onChange }: Props) {
 
         case 'reference':
             return <ReferenceFields block={block} schema={schema} onChange={onChange} />
+
+        case 'chart':
+            return <ChartFields block={block} schema={schema} onChange={onChange} />
 
         case 'code':
             return (
@@ -661,6 +665,14 @@ export function summarise(block: PdfBlock): string {
             return block.field ? `${block.field} → ${block.table} · ${block.rows.length} fields` : 'not set up yet'
         case 'code':
             return block.title || block.code.split('\n').find(line => line.trim())?.trim().slice(0, 80) || 'empty'
+        case 'chart':
+            return `${block.chart} · ${
+                block.related
+                    ? block.related.table
+                        ? `${block.related.table} by ${block.related.groupBy || '…'}`
+                        : 'not set up yet'
+                    : `${block.items.length} figure${block.items.length === 1 ? '' : 's'}`
+            }`
         case 'link':
             return `${block.text || block.url} → ${block.url}`.slice(0, 90)
         case 'callout':

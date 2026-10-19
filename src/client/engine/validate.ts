@@ -16,6 +16,7 @@ import { DEFAULT_MARGINS, PAGE_SIZES } from "./pdf";
 import { FONT_FAMILIES, type FontFamily } from "./pdfFonts";
 import {
   CALLOUT_TONES,
+  CHART_KINDS,
   DEFAULT_PAGE,
   DEFAULT_RELATED_LIMIT,
   MAX_BLOCKS,
@@ -24,6 +25,7 @@ import {
   starterTemplate,
   type BlockAlign,
   type CalloutTone,
+  type ChartKind,
   type ListColumn,
   type ListStyle,
   type PdfBlock,
@@ -257,6 +259,34 @@ function readBlock(raw: unknown): PdfBlock | null {
         }),
         ...(optionalColor(input.color) ? { color: optionalColor(input.color) } : {}),
       };
+
+    case "chart": {
+      const source = asRecord(input.related);
+      const table = identifier(source.table);
+      // Like a related list, a half-chosen source is kept for the editor to finish.
+      const related = table || identifier(source.groupBy, 200)
+        ? {
+            table,
+            field: identifier(source.field),
+            ...(query(source.query) ? { query: query(source.query) } : {}),
+            groupBy: identifier(source.groupBy, 200),
+          }
+        : undefined;
+      return {
+        type: "chart",
+        chart: oneOf<ChartKind>(input.chart, CHART_KINDS.map(entry => entry.kind), "column"),
+        ...(text(input.title, 200) ? { title: text(input.title, 200) } : {}),
+        items: (Array.isArray(input.items) ? input.items : []).slice(0, 60).map(entry => {
+          const item = asRecord(entry);
+          return { label: text(item.label, 120), value: text(item.value, 300) };
+        }),
+        ...(related ? { related } : {}),
+        height: bounded(input.height, 160, 40, 600),
+        ...(optionalColor(input.color) ? { color: optionalColor(input.color) } : {}),
+        ...(input.showValues === true ? { showValues: true } : {}),
+        ...(text(input.emptyText, 200) ? { emptyText: text(input.emptyText, 200) } : {}),
+      };
+    }
 
     case "signatures":
       return {

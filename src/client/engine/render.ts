@@ -13,6 +13,7 @@
  * footer — is resolved per page against the record that owns it, so a footer
  * reading `{{record.number}}` is right on every page of a fifty-record file.
  */
+import { chartData, layoutChart, type ChartScene, type ChartStyle } from "./chart";
 import { renderCustomSlide } from "./freeform";
 import { decodeImage, imageBox, type EmbeddableImage } from "./image";
 import { recordUrl, safeUrl } from "./links";
@@ -29,6 +30,7 @@ import {
   relatedKey,
   templateStrings,
   type BlockAlign,
+  type ChartBlock,
   type CodeBlock,
   type PdfBlock,
   type PdfHeader,
@@ -617,6 +619,11 @@ function renderBlock(block: PdfBlock, context: RenderContext): void {
       break;
     }
 
+    case "chart": {
+      renderChart(block, context);
+      break;
+    }
+
     case "link": {
       const address = fill(block.url);
       const label = fill(block.text);
@@ -913,6 +920,94 @@ function renderCode(block: CodeBlock, context: RenderContext): void {
   } while (next < lines.length);
 
   document.moveDown(block.spaceAfter ?? 8);
+}
+
+/* ---------------------------------- chart -------------------------------- */
+
+/** The inks and sheet a page gives its charts. */
+export const chartStyle = (page: PdfPageSetup, surface = page.background ?? "#ffffff"): ChartStyle => ({
+  family: page.family,
+  fontSize: page.fontSize,
+  textColor: page.textColor,
+  mutedColor: page.mutedColor,
+  surface,
+});
+
+/**
+ * A chart: a title like a related list's, the plot laid out by ./chart.ts,
+ * and a note under it when it shows less than everything. It moves to the
+ * next page whole — half a chart answers nothing.
+ */
+function renderChart(block: ChartBlock, context: RenderContext): void {
+  const { document, page, style, fill } = context;
+  const data = chartData(block, text => fill(text), context.related);
+  if (data.error) context.problems.add(`Chart of ${block.related?.table}: ${data.error}`);
+
+  const extra = data.count === undefined ? undefined : { "list.count": String(data.count) };
+  const title = block.title ? fill(block.title, extra) : "";
+  const titleStyle = {
+    size: page.fontSize + 2,
+    bold: true,
+    color: page.accentColor,
+    spaceAfter: 6,
+    ...(style.headingFamily ? { family: style.headingFamily } : {}),
+  };
+  const heading = style.headingUppercase ? title.toUpperCase() : title;
+
+  if (!data.points.length) {
+    const empty = block.emptyText ? fill(block.emptyText, extra) : "";
+    if (!empty) return;
+    if (heading) document.text(heading, titleStyle);
+    document.text(empty, { size: page.fontSize - 0.5, italic: true, color: page.mutedColor, spaceAfter: 6 });
+    return;
+  }
+
+  const scene = layoutChart(block, data.points, document.contentWidth, chartStyle(page));
+  const titleHeight = heading ? document.text(heading, titleStyle, { draw: false }) : 0;
+  document.ensureRoom(titleHeight + scene.height);
+  if (heading) document.text(heading, titleStyle);
+  const top = document.y;
+  drawChart(document, scene, document.left, top);
+  document.y = top + scene.height;
+  if (data.note) {
+    document.moveDown(4);
+    document.text(data.note, { size: Math.max(6, page.fontSize - 2), color: page.mutedColor });
+  }
+  document.moveDown(10);
+}
+
+/** A laid-out chart's marks, through the writer's own primitives, with its top-left at (x, y). */
+export function drawChart(document: PdfDocument, scene: ChartScene, x: number, y: number): void {
+  const at = ([px, py]: [number, number]): [number, number] => [x + px, y + py];
+  for (const mark of scene.marks) {
+    switch (mark.kind) {
+      case "shape":
+        document.withOpacity(mark.opacity, () =>
+          document.drawPath(mark.points.map(at), { fill: mark.fill, stroke: mark.stroke, strokeWidth: mark.strokeWidth }),
+        );
+        break;
+      case "polyline":
+        // Segment by segment: round caps make the joins.
+        for (let index = 1; index < mark.points.length; index++) {
+          const [x1, y1] = at(mark.points[index - 1]!);
+          const [x2, y2] = at(mark.points[index]!);
+          document.drawLine(x1, y1, x2, y2, { color: mark.color, thickness: mark.width });
+        }
+        break;
+      case "rule":
+        document.drawLine(x + mark.x1, y + mark.y1, x + mark.x2, y + mark.y2, { color: mark.color, thickness: mark.width });
+        break;
+      case "dot": {
+        const ring = mark.r + 2;
+        document.drawShape("ellipse", x + mark.cx - ring, y + mark.cy - ring, ring * 2, ring * 2, { fill: mark.ring });
+        document.drawShape("ellipse", x + mark.cx - mark.r, y + mark.cy - mark.r, mark.r * 2, mark.r * 2, { fill: mark.fill });
+        break;
+      }
+      case "text":
+        document.drawTextAt(mark.text, x + mark.x, y + mark.y, { size: mark.size, color: mark.color, bold: mark.bold });
+        break;
+    }
+  }
 }
 
 /* --------------------------------- callout ------------------------------- */

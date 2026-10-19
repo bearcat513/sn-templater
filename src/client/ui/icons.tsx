@@ -44,6 +44,7 @@ const PATHS = {
     drag: 'M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01',
     filter: 'M4 5h16l-6 8v6l-4-2v-4z',
     table: 'M4 5h16v14H4zM4 10h16M10 10v9',
+    chart: 'M4 4v16h16M8 16v-4M12 16V8M16 16v-6',
     bug: 'M9 7a3 3 0 0 1 6 0v1H9zM7 9h10v5a5 5 0 0 1-10 0zM12 10v9M3 13h4M17 13h4M4 7l3 2M20 7l-3 2M4 19l3-2M20 19l-3-2',
     ban: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM5.6 5.6l12.8 12.8',
     sparkle: 'M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5L18 18M6 18l2.5-2.5M15.5 8.5L18 6',

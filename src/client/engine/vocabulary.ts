@@ -24,7 +24,7 @@
  * template cannot reach past what its reader could already open.
  */
 import { tokensIn, type TokenDescription } from "./tokens";
-import { relatedBlocks, templateStrings, type PdfTemplate } from "./template";
+import { relatedBlocks, relatedKey, templateStrings, type PdfTemplate } from "./template";
 
 /** A field of a table, as the schema endpoint describes it. */
 export type SchemaField = {
@@ -99,7 +99,7 @@ export function recordFieldPaths(template: PdfTemplate): string[] {
  * only when a new field token appears.
  */
 export function dataSignature(template: PdfTemplate): string {
-  return JSON.stringify([recordFieldPaths(template).sort(), relatedBlocks(template).map(block => block.table + block.field)]);
+  return JSON.stringify([recordFieldPaths(template).sort(), relatedBlocks(template).map(relatedKey).sort()]);
 }
 
 /* -------------------------------- values --------------------------------- */

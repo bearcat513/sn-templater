@@ -12,6 +12,7 @@ const BLOCK_ICONS: Record<BlockType, IconName> = {
     columns: 'grid',
     relatedList: 'layers',
     stats: 'sparkle',
+    chart: 'chart',
     image: 'image',
     signatures: 'check',
     divider: 'minus',

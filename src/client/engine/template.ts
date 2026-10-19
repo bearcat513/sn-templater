@@ -239,6 +239,52 @@ export const calloutColors = (tone: CalloutTone | undefined, color?: string): { 
 
 export type ListStyle = "bullet" | "number" | "check";
 
+export type ChartKind = "column" | "bar" | "line" | "pie" | "donut";
+
+export const CHART_KINDS: { kind: ChartKind; label: string }[] = [
+  { kind: "column", label: "Column" },
+  { kind: "bar", label: "Bar" },
+  { kind: "line", label: "Line" },
+  { kind: "pie", label: "Pie" },
+  { kind: "donut", label: "Donut" },
+];
+
+/**
+ * A chart of figures, laid out by ./chart.ts and drawn the same on paper and
+ * on screen.
+ *
+ * Its figures are either written into the block — a label and a value each,
+ * tokens and all, so `{{record.reassignment_count}}` can be a bar — or
+ * counted from the records that reference this one, grouped by one of their
+ * fields: an incident's tasks by state, a change's approvals by approver.
+ */
+export type ChartBlock = {
+  type: "chart";
+  chart: ChartKind;
+  /** Drawn above the chart. Tokens work, plus `{{list.count}}` when it counts related records. */
+  title?: string;
+  /** Written figures. A value that does not fill to a number is left out. */
+  items: { label: string; value: string }[];
+  /** When set, the figures are counted from related records instead of `items`. */
+  related?: ChartSource;
+  /** The plot's height in points, title and legend aside. */
+  height: number;
+  /** The one series' colour. A pie or donut takes the categorical palette instead. */
+  color?: string;
+  /** Each figure printed beside its mark. */
+  showValues?: boolean;
+  /** What to print when there is nothing to chart. Empty prints nothing at all. */
+  emptyText?: string;
+};
+
+/** Records that reference this one, counted by the display value of one of their fields. */
+export type ChartSource = {
+  table: string;
+  field: string;
+  query?: string;
+  groupBy: string;
+};
+
 export type PdfBlock =
   | { type: "heading"; text: string; size?: number; align?: BlockAlign; color?: string; spaceAfter?: number }
   | {
@@ -268,6 +314,7 @@ export type PdfBlock =
   | { type: "signatures"; parties: { label: string; caption?: string }[] }
   | ReferenceBlock
   | CodeBlock
+  | ChartBlock
   | {
       type: "link";
       /** What is read. Tokens work. Empty uses the address itself. */
@@ -316,6 +363,7 @@ export const BLOCK_TYPES: { type: BlockType; label: string; description: string 
   { type: "columns", label: "Columns", description: "Side-by-side panels of text" },
   { type: "relatedList", label: "Related list", description: "Records that reference this one, as a table" },
   { type: "stats", label: "Stats", description: "A row of large figures — good on a slide" },
+  { type: "chart", label: "Chart", description: "Bars, a line or a pie — of your figures or of related records" },
   { type: "reference", label: "Reference record", description: "Fields of a record this one points at, as a card" },
   { type: "list", label: "List", description: "Bulleted, numbered or checkbox items" },
   { type: "table", label: "Table", description: "A grid of your own rows and columns" },
@@ -550,6 +598,19 @@ export function blankBlock(type: BlockType, kind: TemplateKind = "document"): Pd
           { label: "Priority", value: "{{record.priority}}" },
         ],
       };
+    case "chart":
+      return {
+        type: "chart",
+        chart: "column",
+        title: "",
+        items: [
+          { label: "Reassignments", value: "{{record.reassignment_count}}" },
+          { label: "Reopens", value: "{{record.reopen_count}}" },
+        ],
+        height: deck ? 220 : 160,
+        showValues: true,
+        emptyText: "Nothing to chart.",
+      };
     case "signatures":
       return {
         type: "signatures",
@@ -627,6 +688,12 @@ export function blockStrings(block: PdfBlock): string[] {
         : [];
     case "code":
       return [block.code, block.title ?? ""];
+    case "chart":
+      return [
+        block.title ?? "",
+        block.emptyText ?? "",
+        ...(block.related ? [] : block.items.flatMap(item => [item.label, item.value])),
+      ];
     case "link":
       return [block.text, block.url];
     case "callout":
@@ -658,8 +725,23 @@ export function relatedKey(block: RelatedListBlock): string {
   ]);
 }
 
-/** Every related-list block, cover and body alike. */
+/**
+ * The rows a chart counts, asked for as a related list of one column: so they
+ * are fetched, shared and keyed exactly as a list's rows are.
+ */
+export const chartRelatedList = (source: ChartSource): RelatedListBlock => ({
+  type: "relatedList",
+  table: source.table,
+  field: source.field,
+  ...(source.query ? { query: source.query } : {}),
+  limit: MAX_RELATED_ROWS,
+  columns: [{ field: source.groupBy, header: source.groupBy, width: 1 }],
+});
+
+/** Every related-list block — and every chart counting related records — cover and body alike. */
 export const relatedBlocks = (template: PdfTemplate): RelatedListBlock[] =>
-  [...template.blocks, ...(template.cover ?? [])].filter(
-    (block): block is RelatedListBlock => block.type === "relatedList" && Boolean(block.table && block.field),
-  );
+  [...template.blocks, ...(template.cover ?? [])]
+    .map(block => (block.type === "chart" && block.related?.groupBy ? chartRelatedList(block.related) : block))
+    .filter(
+      (block): block is RelatedListBlock => block.type === "relatedList" && Boolean(block.table && block.field),
+    );

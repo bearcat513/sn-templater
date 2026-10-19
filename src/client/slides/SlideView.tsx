@@ -1,4 +1,5 @@
 import React, { useLayoutEffect, useRef } from 'react'
+import { chartData, layoutChart } from '../engine/chart'
 import { pageDimensions } from '../engine/pdf'
 import { safeUrl } from '../engine/links'
 import {
@@ -8,6 +9,7 @@ import {
     CODE_LINE_HEIGHT,
     CODE_PADDING,
     DEFAULT_CODE_BACKGROUND,
+    chartStyle,
     codeLines,
     listIndent,
     referenceLink,
@@ -24,6 +26,7 @@ import {
     type PdfTemplate,
 } from '../engine/template'
 import { fillTokens } from '../engine/tokens'
+import { ChartSvg } from './Chart'
 import { FONT_STACKS, FreeformContent } from './Freeform'
 import type { Slide } from './paginate'
 
@@ -768,9 +771,65 @@ function Block({ block, page, style, fill, slide, contentWidth, interactive }: B
             )
         }
 
+        case 'chart':
+            return <ChartBlockView block={block} page={page} style={style} fill={fill} slide={slide} contentWidth={contentWidth} />
+
         case 'pageBreak':
             return null
     }
+}
+
+/** A chart block: the same title, plot and note the PDF draws, the plot as SVG. */
+function ChartBlockView({
+    block,
+    page,
+    style,
+    fill,
+    slide,
+    contentWidth,
+}: Omit<BlockProps, 'block' | 'interactive'> & { block: Extract<PdfBlock, { type: 'chart' }> }) {
+    const data = chartData(block, text => fill(text), slide.related)
+    const extra = data.count === undefined ? undefined : { 'list.count': String(data.count) }
+    const title = block.title ? fill(block.title, extra) : ''
+    const empty = !data.points.length
+    if (empty && !block.emptyText) return null
+    const surface = slide.custom?.background || page.background || '#ffffff'
+
+    return (
+        <div style={{ marginBottom: 10 }}>
+            {title && (
+                <div
+                    style={{
+                        fontSize: page.fontSize + 2,
+                        fontWeight: 700,
+                        color: page.accentColor,
+                        marginBottom: 6,
+                        lineHeight: 1.35,
+                        textTransform: style.headingUppercase ? 'uppercase' : undefined,
+                        fontFamily: style.headingFamily ? FONT_STACKS[style.headingFamily] : undefined,
+                    }}
+                >
+                    {title}
+                </div>
+            )}
+            {empty ? (
+                <div style={{ fontSize: page.fontSize - 0.5, fontStyle: 'italic', color: page.mutedColor }}>
+                    {fill(block.emptyText ?? '', extra)}
+                </div>
+            ) : (
+                <ChartSvg
+                    scene={layoutChart(block, data.points, contentWidth, chartStyle(page, surface))}
+                    family={page.family}
+                    label={title || 'Chart'}
+                />
+            )}
+            {!empty && data.note && (
+                <div style={{ marginTop: 4, fontSize: Math.max(6, page.fontSize - 2), color: page.mutedColor }}>
+                    {data.note}
+                </div>
+            )}
+        </div>
+    )
 }
 
 function RelatedList({
