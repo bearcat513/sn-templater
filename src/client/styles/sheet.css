@@ -315,3 +315,35 @@
 .tp-presenter.is-idle .tp-presenter__bottom {
   opacity: 0;
 }
+
+/* Blocks with a box of their own: a reference card, code. */
+
+.tp-sheet__card {
+  border: 0.75px solid;
+  background: #fafafa;
+}
+
+.tp-sheet__code {
+  border-radius: 4px;
+}
+
+.tp-sheet__code-line {
+  position: relative;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.tp-sheet__code-number {
+  position: absolute;
+  left: 0;
+  text-align: right;
+}
+
+.tp-sheet__check {
+  position: absolute;
+  border: 0.75px solid;
+}
+
+.tp-sheet__link:hover {
+  opacity: 0.8;
+}

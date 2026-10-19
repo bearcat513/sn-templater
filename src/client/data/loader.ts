@@ -8,6 +8,7 @@ import {
     type RelatedListBlock,
 } from '../engine/template'
 import { recordFieldPaths, recordValues, rowValues, specimenValues, type SchemaField } from '../engine/vocabulary'
+import { recordUrl } from '../engine/links'
 import { andQuery } from '../services/http'
 import { log } from '../debug/log'
 import { RecordService, type ApiRecord } from '../services/records'
@@ -41,6 +42,9 @@ export const MAX_RECORDS = 500
 /** How many related-list requests may be in flight at once. */
 const CONCURRENCY = 4
 
+/** The instance the page is served from: what `{{url.instance}}` is, and what paths in links are relative to. */
+export const instanceUrl = (): string => (typeof window === 'undefined' ? '' : window.location.origin)
+
 /** Tokens that belong to the batch and the session rather than to a record. */
 export function contextValues(
     schema: Pick<TableSchema, 'name' | 'label'>,
@@ -59,8 +63,13 @@ export function contextValues(
         'deck.title': title,
         'deck.count': String(count),
         'deck.index': index === undefined ? '' : String(index + 1),
+        'url.instance': instanceUrl(),
     }
 }
+
+/** A record's own links: set per record, so the cover — which has no record — reports them as unknown. */
+const recordLinks = (table: string, sysId: string): Record<string, string> =>
+    sysId ? { 'url.record': recordUrl(instanceUrl(), table, sysId) } : {}
 
 /** Runs `work` over `items` with at most `limit` in flight. */
 async function pool<T>(items: T[], limit: number, work: (item: T) => Promise<void>, signal?: AbortSignal) {
@@ -166,7 +175,11 @@ export async function loadRecords(options: LoadOptions): Promise<LoadResult> {
     const count = records.length
     const sources: RecordSource[] = records.map((record, index) => ({
         label: labelOf(record, schema),
-        values: { ...recordValues(record, paths), ...contextValues(schema, session, title, count, index) },
+        values: {
+            ...recordValues(record, paths),
+            ...contextValues(schema, session, title, count, index),
+            ...recordLinks(schema.name, storedValue(record.sys_id)),
+        },
         related: {},
     }))
 
@@ -243,6 +256,7 @@ export function specimenJob(
                     ...specimenValues(paths, schema.fields as SchemaField[]),
                     'raw.sys_id': '‹sys_id›',
                     ...contextValues(schema, session, title, 1, 0),
+                    'url.record': `${instanceUrl()}/${schema.name}.do`,
                 },
                 related,
             },

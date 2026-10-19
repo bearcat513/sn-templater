@@ -6,19 +6,32 @@ import {
     arrowHead,
     arrowInset,
     bulletIndent,
+    cellFill,
+    cellShape,
     cornerRadius,
     lineEnds,
+    shapePoints,
+    tableCells,
+    tableLines,
     textFrame,
 } from '../engine/freeform'
+import { safeUrl } from '../engine/links'
 import type { FontFamily } from '../engine/pdfFonts'
-import type { CustomSlide, LineElement, ShapeElement, SlideElement } from '../engine/presentation'
+import {
+    buildSequence,
+    type CustomSlide,
+    type LineElement,
+    type ShapeElement,
+    type SlideElement,
+    type TableElement,
+} from '../engine/presentation'
 
 /**
  * A custom slide's elements, drawn in HTML on the sheet.
  *
  * The other half of engine/freeform.ts: the same boxes, the same text frame
- * and insets, the same arrowheads, in sheet points that the sheet then
- * scales — so what is laid out here is where the PDF puts it.
+ * and insets, the same arrowheads and polygon corners, in sheet points that
+ * the sheet then scales — so what is laid out here is where the PDF puts it.
  */
 
 export const FONT_STACKS: Record<FontFamily, string> = {
@@ -33,21 +46,32 @@ type Props = {
     fill: (text: string) => string
     /** In the builder: empty text shows its placeholder, and one element's text can be left out while it is edited. */
     editing?: { placeholders: boolean; hideTextOf?: string }
+    /** In the presenter: how many build steps are shown, and which one should animate in. */
+    builds?: { shown: number; animate?: number }
+    /** Set in the presenter: element links are anchors, and paths resolve against this. */
+    linkBase?: string
 }
 
-export function FreeformContent({ slide, family, fill, editing }: Props) {
+export function FreeformContent({ slide, family, fill, editing, builds, linkBase }: Props) {
+    const sequence = builds ? buildSequence(slide) : []
     return (
         <>
-            {slide.elements.map(element => (
-                <FreeformElement
-                    key={element.id}
-                    element={element}
-                    family={family}
-                    fill={fill}
-                    placeholder={editing?.placeholders ?? false}
-                    hideText={editing?.hideTextOf === element.id}
-                />
-            ))}
+            {slide.elements.map(element => {
+                const step = sequence.indexOf(element.id)
+                if (builds && step !== -1 && step >= builds.shown) return null
+                return (
+                    <FreeformElement
+                        key={element.id}
+                        element={element}
+                        family={family}
+                        fill={fill}
+                        placeholder={editing?.placeholders ?? false}
+                        hideText={editing?.hideTextOf}
+                        animate={builds && step !== -1 && step === builds.animate ? element.build!.effect : undefined}
+                        link={linkBase !== undefined && element.link ? safeUrl(fill(element.link), linkBase) : null}
+                    />
+                )
+            })}
         </>
     )
 }
@@ -58,13 +82,18 @@ function FreeformElement({
     fill,
     placeholder,
     hideText,
+    animate,
+    link,
 }: {
     element: SlideElement
     family: FontFamily
     fill: (text: string) => string
     placeholder: boolean
-    hideText: boolean
+    hideText?: string
+    animate?: string
+    link: string | null
 }) {
+    const turn = element.type === 'line' ? 0 : (element.rotation ?? 0)
     const style: React.CSSProperties = {
         position: 'absolute',
         left: element.x,
@@ -72,26 +101,33 @@ function FreeformElement({
         width: element.w,
         height: element.h,
         opacity: element.opacity,
+        transform: turn ? `rotate(${turn}deg)` : undefined,
     }
+    const className = `tp-free${animate ? ` tp-build tp-build--${animate}` : ''}`
+    const anchor = link ? (
+        <a className="tp-free__link" href={link} target="_blank" rel="noreferrer noopener" aria-label={link} />
+    ) : null
 
     switch (element.type) {
         case 'shape':
             return (
-                <div style={style} className="tp-free">
+                <div style={style} className={className}>
                     <ShapeOutline element={element} />
-                    {!hideText && <ShapeText element={element} family={family} fill={fill} placeholder={placeholder} />}
+                    {hideText !== element.id && <ShapeText element={element} family={family} fill={fill} placeholder={placeholder} />}
+                    {anchor}
                 </div>
             )
         case 'line':
             return (
-                <div style={style} className="tp-free">
+                <div style={style} className={className}>
                     <LineDrawing element={element} />
+                    {anchor}
                 </div>
             )
         case 'image': {
             const stroke = element.stroke && (element.strokeWidth ?? 0) > 0 ? element.strokeWidth! : 0
             return (
-                <div style={style} className="tp-free">
+                <div style={style} className={className}>
                     <img
                         src={element.source}
                         alt=""
@@ -105,9 +141,17 @@ function FreeformElement({
                             outlineOffset: stroke ? -stroke / 2 : undefined,
                         }}
                     />
+                    {anchor}
                 </div>
             )
         }
+        case 'table':
+            return (
+                <div style={style} className={className}>
+                    <TableDrawing element={element} family={family} fill={fill} hideText={hideText} />
+                    {anchor}
+                </div>
+            )
     }
 }
 
@@ -122,19 +166,15 @@ function ShapeOutline({ element }: { element: ShapeElement }) {
         strokeWidth: stroke ? element.strokeWidth : 0,
         strokeLinejoin: 'round' as const,
     }
+    const points = shapePoints({ ...element, x: 0, y: 0 })
     return (
         <svg className="tp-free__svg" width={w} height={h} viewBox={`0 0 ${w} ${h}`} aria-hidden="true">
             {element.shape === 'ellipse' ? (
                 <ellipse cx={w / 2} cy={h / 2} rx={w / 2} ry={h / 2} {...paint} />
-            ) : element.shape === 'triangle' ? (
-                <polygon points={`${w / 2},0 ${w},${h} 0,${h}`} {...paint} />
+            ) : points ? (
+                <polygon points={points.map(([x, y]) => `${x},${y}`).join(' ')} {...paint} />
             ) : (
-                <rect
-                    width={w}
-                    height={h}
-                    rx={element.shape === 'roundRect' ? cornerRadius(w, h) : 0}
-                    {...paint}
-                />
+                <rect width={w} height={h} rx={element.shape === 'roundRect' ? cornerRadius(w, h) : 0} {...paint} />
             )}
         </svg>
     )
@@ -146,23 +186,26 @@ export function ShapeText({
     family,
     fill,
     placeholder,
+    offset = [0, 0],
 }: {
     element: ShapeElement
     family: FontFamily
     fill: (text: string) => string
     placeholder: boolean
+    /** Where the element's box is, in the coordinates the text is drawn in. A table's cell is not at its table's corner. */
+    offset?: [number, number]
 }) {
     const filled = fill(element.text)
     const empty = !filled.trim()
     if (empty && !(placeholder && element.placeholder)) return null
 
-    const frame = textFrame({ ...element, x: 0, y: 0 })
+    const frame = textFrame({ ...element, x: offset[0], y: offset[1] })
     const indent = element.bullets ? bulletIndent(element.size) : 0
     const paragraphs = (empty ? element.placeholder! : filled).split(/\r?\n/)
 
     return (
         <div
-            className="tp-free__text"
+            className={`tp-free__text${element.code ? ' tp-free__text--code' : ''}`}
             style={{
                 left: frame.x,
                 top: frame.y,
@@ -194,6 +237,54 @@ export function ShapeText({
                 )
             )}
         </div>
+    )
+}
+
+/** A table's fills, grid and text, in the table's own box. */
+function TableDrawing({
+    element,
+    family,
+    fill,
+    hideText,
+}: {
+    element: TableElement
+    family: FontFamily
+    fill: (text: string) => string
+    hideText?: string
+}) {
+    const local = { ...element, x: 0, y: 0 }
+    const cells = tableCells(local)
+    return (
+        <>
+            <svg className="tp-free__svg" width={element.w} height={element.h} aria-hidden="true">
+                {cells.map(cell => {
+                    const color = cellFill(element, cell.row)
+                    return color ? <rect key={`${cell.row},${cell.column}`} x={cell.x} y={cell.y} width={cell.w} height={cell.h} fill={color} /> : null
+                })}
+                {element.border && (
+                    <>
+                        {tableLines(local).map(([x1, y1, x2, y2], index) => (
+                            <line key={index} x1={x1} y1={y1} x2={x2} y2={y2} stroke={element.border} strokeWidth={0.75} />
+                        ))}
+                        <rect width={element.w} height={element.h} fill="none" stroke={element.border} strokeWidth={0.75} />
+                    </>
+                )}
+            </svg>
+            {cells.map(cell => {
+                const shape = cellShape(element, cell)
+                if (hideText === shape.id) return null
+                return (
+                    <ShapeText
+                        key={shape.id}
+                        element={{ ...shape, x: 0, y: 0 }}
+                        family={family}
+                        fill={fill}
+                        placeholder={false}
+                        offset={[cell.x, cell.y]}
+                    />
+                )
+            })}
+        </>
     )
 }
 

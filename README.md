@@ -24,12 +24,25 @@ The templating engine is ported from [cpq-vibes](https://github.com/bearcat513/c
 | `{{user.name}}`, `{{user.email}}` | Who rendered it |
 | `{{deck.title}}`, `{{deck.count}}`, `{{deck.index}}` | The batch |
 | `{{list.count}}` | In a related list title: the number of rows matched |
+| `{{url.record}}` | A link to the record's form on the instance |
+| `{{url.instance}}` | The instance's address, e.g. for links of your own |
 
 A token that resolves to nothing renders blank, and the designer and the export screen both report it.
 
 ### Blocks
 
-Heading, text, field list, columns, **related list**, stats, image, signatures, divider, spacer, and page break. Page-level features are the letterhead (logo plus text), a watermark, a footer with per-record page numbers, an optional cover page or title slide, and a house style.
+Heading, text, field list, columns, **related list**, stats, image, signatures, divider, spacer, page break, and:
+
+- **Reference record:** the fields of a record that one of this record's reference fields points at (the caller, the assignment group, the CI), shown as a card or as plain label/value lines. The values are dot-walked tokens (`{{record.caller_id.email}}`), so they are fetched with the record and no extra requests are made. The title can link to the referenced record, and an empty reference prints its "when empty" text or nothing at all.
+- **List:** bulleted, numbered or checkbox items. An item that fills in to several lines, such as a multi-line field, becomes one item per line.
+- **Table:** a grid of your own rows and columns, with tokens in any cell.
+- **Callout:** a tinted box with a coloured edge for a note, a warning or a summary (info, success, warning, critical, neutral). A callout longer than a page flows under a rule in its colour instead of a box.
+- **Code:** preformatted text in Courier with every space and tab kept. Long lines break at the box edge, line numbers are optional, and a block longer than a page continues in its own box on the next page.
+- **Link:** text that opens a web page, an email (`mailto:`), a phone number (`tel:`) or a path on the instance (`/incident_list.do`). In the PDF it is a real link annotation.
+
+Page-level features are the letterhead (logo plus text), a watermark, a footer with per-record page numbers, an optional cover page or title slide, and a house style.
+
+**Links:** only `http(s):`, `mailto:` and `tel:` addresses, and paths on this instance (made absolute), are made into links. Anything else, such as `javascript:`, prints as plain text and is reported as a problem on export.
 
 ## Presentations and the slide builder
 
@@ -47,7 +60,10 @@ To open the **slide builder**, use **Build slides** on the Present page, or **Ed
 - **Arranging:** drag slides in the left-hand list to reorder them, or hide a slide so it is left out of the show and the PDF. Record slides can be moved and hidden; to change what is on one, edit the template.
 - **Custom slides:** the **+** between any two slides inserts a custom slide there. Layouts are Blank, Title slide, Title and content, Section header, Two content and Title only. A custom slide uses the deck's page size, colours and fonts. Its prompts ("Click to add title") show only while editing.
 - **Building a slide:**
-  - Insert text boxes, shapes (rectangle, rounded rectangle, ellipse, triangle), lines, arrows and pictures. You can also drop a picture onto the slide.
+  - Insert text boxes, shapes, lines, arrows, pictures, tables and code boxes. You can also drop a picture onto the slide. The shapes are rectangle, rounded rectangle, ellipse, triangle, right triangle, diamond, pentagon, hexagon, parallelogram, trapezoid, chevron, block arrow and star.
+  - Rotate anything except a line with the round handle above it (Shift turns in 15° steps), or by typing an angle in the inspector. A rotated element still resizes from its handles with the opposite corner held in place.
+  - Tables: double-click a cell to type in it, and use Tab and Shift+Tab to move between cells. The inspector adds and removes rows and columns, edits every cell, and sets the header row, banding, cell fill and grid lines.
+  - A code box, or any shape with **Code** switched on, keeps every space and breaks lines anywhere. Tab indents while you type in it.
   - Drag to move. Edges and centres snap to the slide and to each other; hold Alt to move freely.
   - Resize from the handles. Shift keeps proportions; a picture keeps them unless you hold Shift.
   - Drag either end of a line.
@@ -57,6 +73,13 @@ To open the **slide builder**, use **Build slides** on the Present page, or **Ed
   - Shapes and lines: fill, outline and weight, opacity, dashes and arrowheads.
   - Arranging elements: bring forward, send backward, align to the slide or to each other, distribute evenly.
   - Slides: a background and an optional letterhead, watermark and footer per slide.
+  - **Format painter:** select an element, click the brush, then click another element to give it the same look. Alternatively, Ctrl+Shift+C copies an element's formatting and Ctrl+Shift+V pastes it onto the selection. Only properties that make sense on the target carry over.
+  - **Links:** any element can link to an address (Ctrl+K jumps to the field). Clicking it in the presenter opens the link, and the PDF has a link annotation over it.
+- **Presenting:**
+  - **Animations:** give an element an on-click effect (appear, fade in, fly in, zoom in) and it waits for a click while presenting. The inspector sets the order, and the canvas numbers each step. Going back undoes the last step. The PDF and the thumbnails always show every element.
+  - **Transitions:** none, fade, push, wipe or zoom, set per slide or with **Apply to all slides**. Record slides can have one too.
+  - **Speaker notes:** the pane under the canvas holds notes for any slide, including record slides (kept by slide key). Press N in the presenter to show them, with a preview of the next slide or animation step.
+  - Clicking the slide advances, unless you click a link.
 - **Keys:**
   - Ctrl+Z / Ctrl+Y undo and redo. Ctrl+C / Ctrl+X / Ctrl+V copy, cut and paste, also between slides. Ctrl+D duplicates, and Ctrl+A selects everything on the slide.
   - Delete removes. The arrow keys nudge (with Shift, by 10). Enter types in the selected shape, and Ctrl+B / I / U format it.
@@ -152,4 +175,4 @@ npm run deploy
 - Images must be PNG or JPEG. The picker flattens and re-encodes anything else in the browser.
 - One render covers at most 500 records, and each related list at most 500 rows.
 - A presentation can have up to 200 custom slides of up to 120 elements each. Its body, pictures included, can be up to 3,000,000 characters.
-- Text on custom slides is not rotated, and shapes have no gradients or shadows. On screen, text wraps by the browser's font metrics and in the PDF by the standard 14 fonts' metrics, so a line can break a word earlier or later in one than in the other.
+- Shapes have no gradients or shadows. A link on a rotated element covers the upright box around it in the PDF. On screen, text wraps by the browser's font metrics and in the PDF by the standard 14 fonts' metrics, so a line can break a word earlier or later in one than in the other.

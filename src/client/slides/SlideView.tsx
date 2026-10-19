@@ -1,7 +1,28 @@
 import React, { useLayoutEffect, useRef } from 'react'
 import { pageDimensions } from '../engine/pdf'
-import { resolvePage, resolveStyle } from '../engine/render'
-import { relatedKey, type PdfBlock, type PdfPageSetup, type PdfStyle, type PdfTemplate } from '../engine/template'
+import { safeUrl } from '../engine/links'
+import {
+    CARD_EDGE,
+    CARD_PADDING,
+    CODE_FAMILY,
+    CODE_LINE_HEIGHT,
+    CODE_PADDING,
+    DEFAULT_CODE_BACKGROUND,
+    codeLines,
+    listIndent,
+    referenceLink,
+    resolvePage,
+    resolveStyle,
+} from '../engine/render'
+import {
+    calloutColors,
+    referenceToken,
+    relatedKey,
+    type PdfBlock,
+    type PdfPageSetup,
+    type PdfStyle,
+    type PdfTemplate,
+} from '../engine/template'
 import { fillTokens } from '../engine/tokens'
 import { FONT_STACKS, FreeformContent } from './Freeform'
 import type { Slide } from './paginate'
@@ -31,9 +52,17 @@ type Props = {
     className?: string
     /** The builder's canvas: placeholders shown, and the text being edited left out. */
     editing?: { placeholders: boolean; hideTextOf?: string }
+    /**
+     * In the presenter: how many of a custom slide's build steps are shown,
+     * and which one has just appeared and should animate in. Absent is all of
+     * them, still — a thumbnail, the builder.
+     */
+    builds?: { shown: number; animate?: number }
+    /** Links open when clicked. Only the presenter wants this. */
+    interactive?: boolean
 }
 
-export function SlideView({ template, slide, width, className, editing }: Props) {
+export function SlideView({ template, slide, width, className, editing, builds, interactive }: Props) {
     const page = resolvePage(template)
     const style = resolveStyle(template, page.fontSize)
     const sheet = pageDimensions(page.size, page.landscape)
@@ -102,7 +131,14 @@ export function SlideView({ template, slide, width, className, editing }: Props)
 
                 {custom ? (
                     <div className="tp-sheet__free">
-                        <FreeformContent slide={custom} family={page.family} fill={fill} editing={editing} />
+                        <FreeformContent
+                            slide={custom}
+                            family={page.family}
+                            fill={fill}
+                            editing={editing}
+                            builds={builds}
+                            linkBase={interactive ? slide.values['url.instance'] || '' : undefined}
+                        />
                     </div>
                 ) : (
                 <div
@@ -124,6 +160,7 @@ export function SlideView({ template, slide, width, className, editing }: Props)
                                 fill={fill}
                                 slide={slide}
                                 contentWidth={sheet.width - page.margins.left - page.margins.right}
+                                interactive={interactive}
                             />
                         ))}
                     </div>
@@ -241,9 +278,33 @@ type BlockProps = {
     fill: (text: string, extra?: Record<string, string>) => string
     slide: Slide
     contentWidth: number
+    interactive?: boolean
 }
 
-function Block({ block, page, style, fill, slide, contentWidth }: BlockProps) {
+/** A link on the sheet: an anchor in the presenter, a span that looks like one everywhere else. */
+function Linked({
+    url,
+    interactive,
+    style,
+    children,
+}: {
+    url: string | null
+    interactive?: boolean
+    style?: React.CSSProperties
+    children: React.ReactNode
+}) {
+    if (!url) return <span style={style}>{children}</span>
+    const look = { ...style, textDecoration: 'underline', color: 'inherit' }
+    return interactive ? (
+        <a href={url} target="_blank" rel="noreferrer noopener" style={look} className="tp-sheet__link">
+            {children}
+        </a>
+    ) : (
+        <span style={look}>{children}</span>
+    )
+}
+
+function Block({ block, page, style, fill, slide, contentWidth, interactive }: BlockProps) {
     const headingFamily = style.headingFamily ? FONT_STACKS[style.headingFamily] : undefined
 
     switch (block.type) {
@@ -437,6 +498,273 @@ function Block({ block, page, style, fill, slide, contentWidth }: BlockProps) {
                         </div>
                     ))}
                 </div>
+            )
+        }
+
+        case 'reference': {
+            if (!block.field) return null
+            const sysId = slide.values[`raw.${block.field}`] ?? ''
+            if (!sysId.trim()) {
+                return block.emptyText ? (
+                    <div style={{ fontSize: page.fontSize - 0.5, fontStyle: 'italic', color: page.mutedColor, marginBottom: 6 }}>
+                        {fill(block.emptyText)}
+                    </div>
+                ) : null
+            }
+            const accent = block.color ?? page.accentColor
+            const url = referenceLink(block, slide.values)
+            const title = block.title ? fill(block.title) : ''
+            const rows = block.rows.map(row => ({ label: fill(row.label), value: fill(referenceToken(block, row.field)) }))
+            const card = block.layout !== 'plain'
+            const labelWidth = card
+                ? Math.min(140, (contentWidth - CARD_EDGE - CARD_PADDING * 2) * 0.38)
+                : Math.min(160, contentWidth * 0.35)
+            return (
+                <div
+                    className={card ? 'tp-sheet__card' : undefined}
+                    style={
+                        card
+                            ? {
+                                  borderColor: style.table.gridColor,
+                                  borderLeftColor: accent,
+                                  borderLeftWidth: CARD_EDGE,
+                                  padding: CARD_PADDING,
+                                  marginBottom: 10,
+                              }
+                            : { marginBottom: 8 }
+                    }
+                >
+                    {title && (
+                        <div
+                            className="tp-sheet__text"
+                            style={{
+                                fontSize: page.fontSize + 1,
+                                fontWeight: 700,
+                                color: accent,
+                                lineHeight: style.lineHeight,
+                                marginBottom: rows.length ? 4 : 0,
+                                fontFamily: headingFamily,
+                            }}
+                        >
+                            <Linked url={url} interactive={interactive}>
+                                {title}
+                            </Linked>
+                        </div>
+                    )}
+                    {rows.map((row, index) => (
+                        <div
+                            key={index}
+                            style={{
+                                display: 'grid',
+                                gridTemplateColumns: `${labelWidth}px 1fr`,
+                                marginBottom: card ? 2 : 0,
+                                minHeight: card ? undefined : page.fontSize * 1.5,
+                            }}
+                        >
+                            <div className="tp-sheet__text" style={{ color: page.mutedColor, lineHeight: style.lineHeight, paddingRight: 6 }}>
+                                {row.label}
+                            </div>
+                            <div className="tp-sheet__text" style={{ lineHeight: style.lineHeight }}>
+                                {row.value}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )
+        }
+
+        case 'code': {
+            const source = fill(block.code)
+            const title = block.title ? fill(block.title) : ''
+            if (!source.trim() && !title.trim()) return null
+            const size = block.size ?? Math.max(6, page.fontSize - 1)
+            const lines = codeLines(source)
+            const gutter = block.lineNumbers ? String(lines.length).length + 2 : 0
+            return (
+                <div
+                    className="tp-sheet__code"
+                    style={{
+                        background: block.background ?? DEFAULT_CODE_BACKGROUND,
+                        color: block.color ?? '#18181b',
+                        padding: CODE_PADDING,
+                        marginBottom: block.spaceAfter ?? 8,
+                        fontSize: size,
+                    }}
+                >
+                    {title && (
+                        <div
+                            style={{
+                                fontFamily: FONT_STACKS[page.family],
+                                fontSize: Math.max(6, size - 1),
+                                fontWeight: 700,
+                                color: page.mutedColor,
+                                height: size * 1.6,
+                            }}
+                        >
+                            {title}
+                        </div>
+                    )}
+                    {lines.map((line, index) => (
+                        <div
+                            key={index}
+                            className="tp-sheet__code-line"
+                            style={{
+                                fontFamily: FONT_STACKS[CODE_FAMILY],
+                                lineHeight: CODE_LINE_HEIGHT,
+                                paddingLeft: `${gutter * 0.6}em`,
+                            }}
+                        >
+                            {gutter > 0 && (
+                                <span className="tp-sheet__code-number" style={{ color: page.mutedColor, width: `${(gutter - 2) * 0.6}em` }}>
+                                    {index + 1}
+                                </span>
+                            )}
+                            {line || '\u200b'}
+                        </div>
+                    ))}
+                </div>
+            )
+        }
+
+        case 'link': {
+            const address = fill(block.url)
+            const label = fill(block.text)
+            const shown = label.trim() ? label : address
+            if (!shown.trim()) return null
+            const url = safeUrl(address, slide.values['url.instance'])
+            return (
+                <div
+                    className="tp-sheet__text"
+                    style={{
+                        fontSize: block.size ?? page.fontSize,
+                        fontWeight: block.bold ? 700 : 400,
+                        color: block.color ?? page.accentColor,
+                        textAlign: block.align ?? 'left',
+                        lineHeight: style.lineHeight,
+                        marginBottom: block.spaceAfter ?? style.paragraphSpacing,
+                    }}
+                >
+                    <Linked url={url} interactive={interactive}>
+                        {shown}
+                    </Linked>
+                </div>
+            )
+        }
+
+        case 'callout': {
+            const colors = calloutColors(block.tone, block.color)
+            const title = block.title ? fill(block.title) : ''
+            const body = fill(block.text)
+            if (!title.trim() && !body.trim()) return null
+            return (
+                <div
+                    style={{
+                        background: colors.fill,
+                        borderLeft: `${CARD_EDGE}px solid ${colors.color}`,
+                        padding: CARD_PADDING,
+                        marginBottom: 8,
+                        lineHeight: style.lineHeight,
+                    }}
+                >
+                    {title && (
+                        <div className="tp-sheet__text" style={{ fontWeight: 700, color: colors.color, marginBottom: body.trim() ? 2 : 0 }}>
+                            {title}
+                        </div>
+                    )}
+                    {body.trim() && <div className="tp-sheet__text">{body}</div>}
+                </div>
+            )
+        }
+
+        case 'list': {
+            const size = block.size ?? page.fontSize
+            const entries = block.items
+                .flatMap(item => fill(item).split(/\r?\n/))
+                .map(entry => entry.trim())
+                .filter(Boolean)
+            if (!entries.length) return null
+            const indent = listIndent(block.style, size, entries.length)
+            return (
+                <div style={{ fontSize: size, lineHeight: style.lineHeight, marginBottom: block.spaceAfter ?? style.paragraphSpacing }}>
+                    {entries.map((entry, index) => (
+                        <div key={index} style={{ display: 'flex', marginBottom: size * 0.25 }}>
+                            <span style={{ flex: `0 0 ${indent}px`, position: 'relative' }} aria-hidden="true">
+                                {block.style === 'number' ? (
+                                    <span style={{ position: 'absolute', right: size * 0.45, color: page.mutedColor }}>{index + 1}.</span>
+                                ) : block.style === 'check' ? (
+                                    <span
+                                        className="tp-sheet__check"
+                                        style={{
+                                            left: size * 0.05,
+                                            top: `calc(${(style.lineHeight - 1) / 2}em + ${size * 0.12}px)`,
+                                            width: size * 0.72,
+                                            height: size * 0.72,
+                                            borderColor: page.mutedColor,
+                                            borderRadius: size * 0.13,
+                                        }}
+                                    />
+                                ) : (
+                                    <span style={{ position: 'absolute', left: size * 0.15, color: page.accentColor }}>•</span>
+                                )}
+                            </span>
+                            <span className="tp-sheet__text" style={{ flex: 1, minWidth: 0 }}>
+                                {entry}
+                            </span>
+                        </div>
+                    ))}
+                </div>
+            )
+        }
+
+        case 'table': {
+            const table = style.table
+            const total = block.columns.reduce((sum, column) => sum + Math.max(0, column.width), 0) || 1
+            const headers = block.columns.map(column => fill(column.header))
+            if (!block.rows.length && !headers.some(header => header.trim())) return null
+            const zebra = block.zebra ?? table.zebra
+            return (
+                <table className="tp-sheet__table" style={{ fontSize: block.fontSize ?? page.fontSize - 0.5, marginBottom: 8 }}>
+                    <colgroup>
+                        {block.columns.map((column, index) => (
+                            <col key={index} style={{ width: `${(Math.max(0, column.width) / total) * 100}%` }} />
+                        ))}
+                    </colgroup>
+                    {headers.some(header => header.trim()) && (
+                        <thead>
+                            <tr style={{ background: block.headerFill ?? table.headerFill, borderBottom: '0.75px solid #a1a1aa' }}>
+                                {block.columns.map((column, index) => (
+                                    <th
+                                        key={index}
+                                        style={{
+                                            padding: table.cellPadding,
+                                            textAlign: column.align ?? 'left',
+                                            color: table.headerColor ?? page.mutedColor,
+                                        }}
+                                    >
+                                        {table.headerUppercase ? headers[index]!.toUpperCase() : headers[index]}
+                                    </th>
+                                ))}
+                            </tr>
+                        </thead>
+                    )}
+                    <tbody>
+                        {block.rows.map((row, rowIndex) => (
+                            <tr
+                                key={rowIndex}
+                                style={{
+                                    background: zebra && rowIndex % 2 === 1 ? zebra : undefined,
+                                    borderBottom: table.rowLines ? `0.5px solid ${table.gridColor}` : undefined,
+                                }}
+                            >
+                                {block.columns.map((column, index) => (
+                                    <td key={index} style={{ padding: table.cellPadding, textAlign: column.align ?? 'left', whiteSpace: 'pre-wrap' }}>
+                                        {fill(row[index] ?? '')}
+                                    </td>
+                                ))}
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
             )
         }
 

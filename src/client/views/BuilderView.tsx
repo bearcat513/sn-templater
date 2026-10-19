@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { SlideEditor } from '../builder/editor'
-import { Inspector } from '../builder/Inspector'
+import { Inspector, TransitionSection, type TransitionControl } from '../builder/Inspector'
 import {
     addElements,
     align,
@@ -10,15 +10,20 @@ import {
     duplicateSlide,
     insertSlide,
     moveSlide,
+    newCodeBox,
     newImage,
     newLine,
     newShape,
+    newTable,
     newTextBox,
     offsetCopies,
     patchElements,
     removeElements,
     setHidden,
+    styleFor,
+    styleOf,
     updateSlide,
+    type CopiedStyle,
 } from '../builder/operations'
 import { Ribbon } from '../builder/Ribbon'
 import { SlideCanvas } from '../builder/SlideCanvas'
@@ -31,15 +36,19 @@ import { decodeImage } from '../engine/image'
 import { prepareImageFile } from '../engine/imageFile'
 import { pageDimensions } from '../engine/pdf'
 import {
+    DEFAULT_TRANSITION,
     EMPTY_BODY,
     MAX_CUSTOM_SLIDES,
     MAX_ELEMENTS,
+    MAX_NOTES_LENGTH,
     MAX_PRESENTATION_BODY_LENGTH,
+    applyTransitionToAll,
     customKey,
     layoutSlide,
     orderOf,
     readPresentation,
     serializePresentation,
+    withSlideOptions,
     type CustomSlide,
     type PresentationBody,
     type SlideElement,
@@ -57,7 +66,7 @@ import { TemplateService } from '../services/templates'
 import { arrange, paginate, shown, type Slide } from '../slides/paginate'
 import { Presenter } from '../slides/Presenter'
 import { SlideView } from '../slides/SlideView'
-import { Badge, Button, EmptyState, Field, Input, Notice, Spinner } from '../ui/controls'
+import { Badge, Button, EmptyState, Field, Input, Notice, Spinner, Textarea } from '../ui/controls'
 import { ConfirmModal, Menu, Modal, useToast } from '../ui/overlays'
 import { SelectionForm, TemplateChooser, type Selection } from './common'
 
@@ -75,6 +84,9 @@ const savedAs = (meta: Meta | null, body: PresentationBody): Saved => ({ meta: J
 
 /** Elements copied with Ctrl+C, kept for pasting onto any slide of any presentation in this tab. */
 let clipboard: SlideElement[] = []
+
+/** A look copied with Ctrl+Shift+C, for Ctrl+Shift+V onto anything else. */
+let copiedStyle: CopiedStyle | null = null
 
 const isTyping = (target: EventTarget | null) => {
     const element = target as HTMLElement | null
@@ -110,6 +122,8 @@ export function BuilderView({ params, navigate }: { params: URLSearchParams; nav
     const [confirmDelete, setConfirmDelete] = useState(false)
     const [saving, setSaving] = useState(false)
     const [saveError, setSaveError] = useState('')
+    const [painter, setPainter] = useState<CopiedStyle | null>(null)
+    const [notesOpen, setNotesOpen] = useState(true)
     const imageInput = useRef<HTMLInputElement>(null)
 
     /* -------------------------------- loading ------------------------------- */
@@ -205,6 +219,7 @@ export function BuilderView({ params, navigate }: { params: URLSearchParams; nav
         setCurrent(key)
         setSelection([])
         setEditing(null)
+        setPainter(null)
     }
 
     const dirty = Boolean(meta) && (body !== saved.body || JSON.stringify(meta) !== saved.meta)
@@ -269,6 +284,12 @@ export function BuilderView({ params, navigate }: { params: URLSearchParams; nav
         if (prepared.image.note) toast(`Picture prepared for the PDF: ${prepared.image.note}.`, 'info')
     }
 
+    /** Paints the copied look onto one element, as the format painter does when it is clicked. */
+    const paint = (ids: string[], style: CopiedStyle | null) => {
+        if (!style || !ids.length) return
+        changeSlide(current => patchElements(current, ids, element => styleFor(element, style)))
+    }
+
     const editor: SlideEditor | null =
         custom && sheet
             ? {
@@ -276,12 +297,24 @@ export function BuilderView({ params, navigate }: { params: URLSearchParams; nav
                   sheet,
                   selection,
                   selected: custom.elements.filter(element => selection.includes(element.id)),
+                  select: ids => {
+                      setSelection(ids)
+                      setEditing(null)
+                  },
                   change: changeSlide,
                   patch: (patch, merge) => changeSlide(current => patchElements(current, selection, patch), merge),
                   insertText: () => place([newTextBox(sheet)], true),
                   insertShape: shape => place([newShape(sheet, shape)]),
                   insertLine: arrow => place([newLine(sheet, arrow)]),
+                  insertCode: () => place([newCodeBox(sheet)], true),
+                  insertTable: (rows, columns) => place([newTable(sheet, rows, columns)]),
                   insertImage: file => (file ? void placeImage(file) : imageInput.current?.click()),
+                  painter,
+                  togglePainter: () => {
+                      if (painter) return setPainter(null)
+                      const source = custom.elements.find(element => selection.includes(element.id))
+                      if (source) setPainter(styleOf(source))
+                  },
                   remove: () => {
                       changeSlide(current => removeElements(current, selection))
                       setSelection([])
@@ -296,6 +329,28 @@ export function BuilderView({ params, navigate }: { params: URLSearchParams; nav
                   distribute: axis => changeSlide(current => distribute(current, selection, axis)),
               }
             : null
+
+    /* --------------------------- notes and transitions ---------------------- */
+
+    const slideOptions = slide ? body.options?.[slide.key] : undefined
+    const transition: TransitionControl | null = slide
+        ? {
+              value: slideOptions?.transition,
+              deck: body.transition ?? DEFAULT_TRANSITION,
+              onChange: next => history.set(currentBody => withSlideOptions(currentBody, slide.key, { transition: next })),
+              onApplyAll: () => {
+                  const chosen = slideOptions?.transition ?? body.transition ?? DEFAULT_TRANSITION
+                  history.set(currentBody => applyTransitionToAll(currentBody, chosen))
+                  toast(`Every slide now comes in with ${chosen === 'none' ? 'no transition' : `a ${chosen}`}.`)
+              },
+          }
+        : null
+
+    const setNotes = (notes: string) => {
+        if (!slide) return
+        const key = slide.key
+        history.set(currentBody => withSlideOptions(currentBody, key, { notes }), `notes:${key}`)
+    }
 
     /* ------------------------------ saving ---------------------------------- */
 
@@ -451,7 +506,19 @@ export function BuilderView({ params, navigate }: { params: URLSearchParams; nav
 
         const picked = custom.elements.filter(element => selection.includes(element.id))
         if (onControl && !mod) return
-        if (mod && key === 'a') {
+        if (mod && event.shiftKey && key === 'c' && picked.length === 1) {
+            event.preventDefault()
+            copiedStyle = styleOf(picked[0]!)
+            toast('Formatting copied. Select something and press Ctrl+Shift+V to paste it.', 'info')
+        } else if (mod && event.shiftKey && key === 'v' && copiedStyle && picked.length) {
+            event.preventDefault()
+            paint(selection, copiedStyle)
+        } else if (mod && key === 'k' && picked.length === 1) {
+            event.preventDefault()
+            document.getElementById('tp-element-link')?.focus()
+        } else if (event.key === 'Escape' && painter) {
+            setPainter(null)
+        } else if (mod && key === 'a') {
             event.preventDefault()
             setSelection(custom.elements.map(element => element.id))
         } else if (mod && (key === 'c' || key === 'x') && picked.length) {
@@ -483,6 +550,9 @@ export function BuilderView({ params, navigate }: { params: URLSearchParams; nav
         } else if (event.key === 'Enter' && picked.length === 1 && picked[0]!.type === 'shape') {
             event.preventDefault()
             setEditing(picked[0]!.id)
+        } else if (event.key === 'Enter' && picked.length === 1 && picked[0]!.type === 'table') {
+            event.preventDefault()
+            setEditing(`${picked[0]!.id}#0,0`)
         } else if (event.key === 'Escape' && selection.length) {
             setSelection([])
         }
@@ -720,6 +790,12 @@ export function BuilderView({ params, navigate }: { params: URLSearchParams; nav
                                         onEditing={setEditing}
                                         onChange={changeSlide}
                                         onDropImage={(file, at) => void placeImage(file, at)}
+                                        painting={Boolean(painter)}
+                                        onPaint={id => {
+                                            paint([id], painter)
+                                            setPainter(null)
+                                            setSelection([id])
+                                        }}
                                     />
                                 ) : (
                                     <div className="tp-builder__locked">
@@ -728,22 +804,46 @@ export function BuilderView({ params, navigate }: { params: URLSearchParams; nav
                                 )
                             }
                         </Fit>
+                        {slide && notesOpen && (
+                            <div className="tp-builder__notes">
+                                <Textarea
+                                    key={slide.key}
+                                    value={slideOptions?.notes ?? ''}
+                                    maxLength={MAX_NOTES_LENGTH}
+                                    rows={3}
+                                    placeholder="Click to add speaker notes. They show in the presenter (press N), not on the slide or in the PDF."
+                                    aria-label="Speaker notes"
+                                    onChange={event => setNotes(event.target.value)}
+                                />
+                            </div>
+                        )}
                         <footer className="tp-builder__status">
                             <span>
                                 {slide?.hidden ? 'Hidden slide' : `Slide ${shownNumber} of ${visible.length}`}
                                 {slide ? ` · ${slide.label}` : ''}
                             </span>
+                            {painter && <Badge tone="primary">Format painter — click an element, Esc to stop</Badge>}
                             {slide?.hidden && (
                                 <Button size="sm" variant="ghost" icon="eye" onClick={() => history.set(currentBody => setHidden(currentBody, slides, slide.key, false))}>
                                     Show it
                                 </Button>
                             )}
+                            <Button
+                                size="sm"
+                                variant="ghost"
+                                icon="notes"
+                                aria-pressed={notesOpen}
+                                onClick={() => setNotesOpen(open => !open)}
+                                title={notesOpen ? 'Hide speaker notes' : 'Show speaker notes'}
+                            >
+                                Notes
+                            </Button>
                         </footer>
                     </section>
 
                     <aside className="tp-builder__inspector">
-                        {editor ? (
-                            <Inspector editor={editor} />
+                        {editor && transition ? (
+                            <Inspector editor={editor} transition={transition} />
                         ) : slide ? (
                             <div className="tp-inspector">
                                 <section className="tp-inspector__section">
@@ -776,6 +876,7 @@ export function BuilderView({ params, navigate }: { params: URLSearchParams; nav
                                         )}
                                     </div>
                                 </section>
+                                {transition && <TransitionSection control={transition} />}
                             </div>
                         ) : null}
                     </aside>

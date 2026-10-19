@@ -14,6 +14,7 @@
  * | `{{user.name}}` / `.email`    | who rendered it                                 |
  * | `{{deck.title}}` / `.count` / `.index` | the batch the record is part of        |
  * | `{{list.count}}`              | inside a related list's title: rows matched     |
+ * | `{{url.record}}` / `.instance` | the record's form, and the instance, as links  |
  *
  * A record field the Table API does not return is unknown, and an unknown
  * token renders blank and is reported — exactly the original's rule.
@@ -45,6 +46,8 @@ export const CONTEXT_TOKENS: TokenDescription[] = [
   { token: "deck.title", description: "The template's name, or the deck's title" },
   { token: "deck.count", description: "How many records are in the document" },
   { token: "deck.index", description: "This record's position: 1, 2, 3…" },
+  { token: "url.record", description: "A link to the record's form on the instance" },
+  { token: "url.instance", description: "The instance's address, for links of your own" },
 ];
 
 export const LIST_TOKENS: TokenDescription[] = [

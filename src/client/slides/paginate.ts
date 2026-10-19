@@ -1,10 +1,12 @@
 import type { RenderJob, SlideSource } from '../engine/render'
 import {
+    DEFAULT_TRANSITION,
     arrangeKeys,
     customKey,
     slideName,
     type CustomSlide,
     type PresentationBody,
+    type Transition,
 } from '../engine/presentation'
 import type { PdfBlock, PdfTemplate } from '../engine/template'
 
@@ -22,6 +24,10 @@ export type Slide = SlideSource & {
     parts: number
     /** Left out of the show and the PDF, but kept in the presentation. */
     hidden?: boolean
+    /** For the speaker, in the presenter only. */
+    notes?: string
+    /** How the presenter brings it in. Absent is the presenter's own fade. */
+    transition?: Transition
 }
 
 /** Blocks split at every page break: one run per page. */
@@ -109,9 +115,12 @@ export function arrange(generated: Slide[], job: RenderJob, body: PresentationBo
     let number = 0
     return placed.map(({ item, hidden }) => {
         if (!hidden) number++
+        const options = body.options?.[item.key]
         return {
             ...item,
             hidden: hidden || undefined,
+            notes: options?.notes,
+            transition: options?.transition ?? body.transition ?? DEFAULT_TRANSITION,
             values: {
                 ...item.values,
                 'slide.number': hidden ? '' : String(number),

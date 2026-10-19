@@ -1,6 +1,6 @@
 import type { CustomSlide, ShapeKind, SlideElement } from '../engine/presentation'
 import type { PdfPageSetup } from '../engine/template'
-import type { Alignment, Arrange } from './operations'
+import type { Alignment, Arrange, CopiedStyle } from './operations'
 
 /** The sheet a custom slide is laid out on. */
 export type Sheet = { width: number; height: number; page: PdfPageSetup }
@@ -15,6 +15,7 @@ export type SlideEditor = {
     sheet: Sheet
     selection: string[]
     selected: SlideElement[]
+    select: (ids: string[]) => void
     /** Changes the whole slide. Changes with the same `merge` key in quick succession undo as one. */
     change: (change: (slide: CustomSlide) => CustomSlide, merge?: string) => void
     /** Changes the selected elements. */
@@ -22,8 +23,14 @@ export type SlideEditor = {
     insertText: () => void
     insertShape: (shape: ShapeKind) => void
     insertLine: (arrow: boolean) => void
+    insertCode: () => void
+    insertTable: (rows: number, columns: number) => void
     /** Opens the file picker, or places the file given. */
     insertImage: (file?: File) => void
+    /** The format painter's copied look, while it is waiting for an element to be clicked. */
+    painter: CopiedStyle | null
+    /** Arms the painter with the selected element's look, or puts it down again. */
+    togglePainter: () => void
     remove: () => void
     duplicate: () => void
     arrange: (how: Arrange) => void

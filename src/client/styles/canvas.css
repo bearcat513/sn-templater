@@ -128,3 +128,44 @@
 .tp-canvas__text::placeholder {
   color: #9ca3af;
 }
+
+/* Rotation: a round handle above the top edge, turned with the selection. */
+.tp-canvas__handle--rotate {
+  left: 50%;
+  top: -22px;
+  width: 11px;
+  height: 11px;
+  margin: -5.5px 0 0 -5.5px;
+  border-radius: 50%;
+  cursor: grab;
+}
+
+.tp-canvas__handle--rotate::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  width: 1px;
+  height: 12px;
+  background: #2563eb;
+}
+
+/* An element's place in the animation sequence, as PowerPoint numbers them. */
+.tp-canvas__step {
+  position: absolute;
+  min-width: 15px;
+  height: 15px;
+  margin: -7px 0 0 -7px;
+  padding: 0 3px;
+  border-radius: 3px;
+  background: #7c3aed;
+  color: #fff;
+  font: 700 10px/15px system-ui, sans-serif;
+  text-align: center;
+  pointer-events: none;
+}
+
+.tp-canvas.is-painting .tp-canvas__hit,
+.tp-canvas.is-painting .tp-canvas__line-hit line {
+  cursor: copy;
+}

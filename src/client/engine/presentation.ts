@@ -25,6 +25,12 @@
  * the HTML sheet use — so a text box placed in the corner is in the corner of
  * the exported page too. Tokens work in a custom slide's text, filled with the
  * deck's values (`{{deck.title}}`, `{{now.date}}`, `{{slide.number}}`).
+ *
+ * ## What only the screen shows
+ *
+ * Build steps (an element appearing on a click), transitions between slides
+ * and speaker notes belong to presenting. The PDF draws every element and
+ * none of the rest — it is the handout, not the show.
  */
 import { isEmbeddableImage } from "./image";
 import { FONT_FAMILIES, type FontFamily } from "./pdfFonts";
@@ -53,7 +59,19 @@ export type ElementText = {
   lineHeight?: number;
   /** Shown while the text is empty, in the builder only: "Click to add title". */
   placeholder?: string;
+  /** Code: every space kept, and lines broken anywhere rather than between words. */
+  code?: boolean;
 };
+
+/** How an element arrives when the presenter clicks on. */
+export type BuildEffect = "appear" | "fade" | "fly" | "zoom";
+
+export const BUILD_EFFECTS: { effect: BuildEffect; label: string }[] = [
+  { effect: "appear", label: "Appear" },
+  { effect: "fade", label: "Fade in" },
+  { effect: "fly", label: "Fly in" },
+  { effect: "zoom", label: "Zoom in" },
+];
 
 type ElementBox = {
   id: string;
@@ -64,9 +82,44 @@ type ElementBox = {
   h: number;
   /** 0–1; absent is opaque. */
   opacity?: number;
+  /** Degrees clockwise about the box's centre. A line has none: its ends say where it goes. */
+  rotation?: number;
+  /** Clicking the element opens this, in the presenter and in the PDF. Tokens work. */
+  link?: string;
+  /** Held back until a click while presenting; `order` is its place in the sequence. */
+  build?: { effect: BuildEffect; order: number };
 };
 
-export type ShapeKind = "rect" | "roundRect" | "ellipse" | "triangle";
+export type ShapeKind =
+  | "rect"
+  | "roundRect"
+  | "ellipse"
+  | "triangle"
+  | "rightTriangle"
+  | "diamond"
+  | "pentagon"
+  | "hexagon"
+  | "parallelogram"
+  | "trapezoid"
+  | "chevron"
+  | "arrow"
+  | "star";
+
+export const SHAPE_KINDS: { shape: ShapeKind; label: string }[] = [
+  { shape: "rect", label: "Rectangle" },
+  { shape: "roundRect", label: "Rounded rectangle" },
+  { shape: "ellipse", label: "Ellipse" },
+  { shape: "triangle", label: "Triangle" },
+  { shape: "rightTriangle", label: "Right triangle" },
+  { shape: "diamond", label: "Diamond" },
+  { shape: "pentagon", label: "Pentagon" },
+  { shape: "hexagon", label: "Hexagon" },
+  { shape: "parallelogram", label: "Parallelogram" },
+  { shape: "trapezoid", label: "Trapezoid" },
+  { shape: "chevron", label: "Chevron" },
+  { shape: "arrow", label: "Block arrow" },
+  { shape: "star", label: "Star" },
+];
 
 /**
  * A shape with text in it. A text box is a rectangle with no fill and no
@@ -106,7 +159,37 @@ export type ImageElement = ElementBox & {
   strokeWidth?: number;
 };
 
-export type SlideElement = ShapeElement | LineElement | ImageElement;
+/**
+ * A table: a grid of cells with text in them. Its rows share its height
+ * equally and its columns share its width by `columns`, so resizing the box
+ * resizes the grid — as a PowerPoint table's does.
+ */
+export type TableElement = ElementBox & {
+  type: "table";
+  /** Cells, row by row; every row as long as the first. Tokens work. */
+  rows: string[][];
+  /** Width shares, one per column. Absent is equal columns. */
+  columns?: number[];
+  /** Set the first row as a header: bold, on `headerFill`. */
+  header: boolean;
+  size: number;
+  color: string;
+  family?: FontFamily;
+  align: TextAlign;
+  headerFill?: string;
+  headerColor?: string;
+  /** Every other body row. */
+  banded?: string;
+  /** Body cells. */
+  fill?: string;
+  /** The grid's lines. Absent is no lines. */
+  border?: string;
+};
+
+export type SlideElement = ShapeElement | LineElement | ImageElement | TableElement;
+
+export const MAX_TABLE_ROWS = 20;
+export const MAX_TABLE_COLUMNS = 10;
 
 export type CustomSlide = {
   id: string;
@@ -125,11 +208,35 @@ export type CustomSlide = {
 /** One place in the running order. */
 export type SlideEntry = { key: string; hidden?: boolean };
 
+/** How one slide gives way to the next in the presenter. */
+export type Transition = "none" | "fade" | "push" | "wipe" | "zoom";
+
+export const TRANSITIONS: { transition: Transition; label: string }[] = [
+  { transition: "none", label: "None" },
+  { transition: "fade", label: "Fade" },
+  { transition: "push", label: "Push" },
+  { transition: "wipe", label: "Wipe" },
+  { transition: "zoom", label: "Zoom" },
+];
+
+/** What a slide carries besides what is on it: notes for the speaker, and how it comes in. */
+export type SlideOptions = { notes?: string; transition?: Transition };
+
 export type PresentationBody = {
   version: 1;
   slides: CustomSlide[];
   order: SlideEntry[];
+  /** How every slide comes in, unless it says otherwise. Absent is a fade. */
+  transition?: Transition;
+  /**
+   * By slide key, like the running order, so a record slide — drawn again
+   * each time — keeps its notes for as long as the record is in the deck.
+   */
+  options?: Record<string, SlideOptions>;
 };
+
+export const DEFAULT_TRANSITION: Transition = "fade";
+export const MAX_NOTES_LENGTH = 5000;
 
 export const EMPTY_BODY: PresentationBody = { version: 1, slides: [], order: [] };
 
@@ -175,9 +282,20 @@ const id = (value: unknown): string => String(value ?? "").replace(/[^A-Za-z0-9_
 /** Room for elements to hang off the sheet, as they can while being dragged, without losing them. */
 const COORDINATE_LIMIT = 4000;
 
+/** Degrees, folded into -180–180 so the same turn is always stored the same way. */
+export const normalizeRotation = (degrees: number): number => {
+  const folded = ((((degrees + 180) % 360) + 360) % 360) - 180;
+  return Math.round(folded * 10) / 10;
+};
+
+const BUILD_NAMES = BUILD_EFFECTS.map(entry => entry.effect);
+
 /** A line's box may be flat — a horizontal line is 0 high — where a shape's may not. */
 function readBox(raw: Record<string, unknown>, min = 1): ElementBox {
   const opacity = raw.opacity === undefined ? undefined : num(raw.opacity, 1, 0.05, 1);
+  const rotation = min > 0 && raw.rotation !== undefined ? normalizeRotation(num(raw.rotation, 0, -3600, 3600)) : 0;
+  const link = String(raw.link ?? "").trim().slice(0, 2000);
+  const build = isRecord(raw.build) && BUILD_NAMES.includes(raw.build.effect as BuildEffect) ? raw.build : null;
   return {
     id: id(raw.id),
     x: num(raw.x, 0, -COORDINATE_LIMIT, COORDINATE_LIMIT),
@@ -185,6 +303,9 @@ function readBox(raw: Record<string, unknown>, min = 1): ElementBox {
     w: num(raw.w, 100, min, COORDINATE_LIMIT),
     h: num(raw.h, 40, min, COORDINATE_LIMIT),
     ...(opacity !== undefined && opacity < 1 ? { opacity } : {}),
+    ...(rotation ? { rotation } : {}),
+    ...(link ? { link } : {}),
+    ...(build ? { build: { effect: build.effect as BuildEffect, order: Math.trunc(num(build.order, 1, 1, 999)) } } : {}),
   };
 }
 
@@ -205,6 +326,39 @@ function readText(raw: Record<string, unknown>): ElementText {
     ...(raw.bullets === true ? { bullets: true } : {}),
     ...(lineHeight !== undefined ? { lineHeight } : {}),
     ...(placeholder ? { placeholder } : {}),
+    ...(raw.code === true ? { code: true } : {}),
+  };
+}
+
+function readTable(value: Record<string, unknown>, box: ElementBox): TableElement | null {
+  const raw = (Array.isArray(value.rows) ? value.rows : []).slice(0, MAX_TABLE_ROWS);
+  const width = Math.min(MAX_TABLE_COLUMNS, Math.max(1, ...raw.map(row => (Array.isArray(row) ? row.length : 0))));
+  const rows = raw.map(row => Array.from({ length: width }, (_, index) => String((Array.isArray(row) ? row[index] : "") ?? "").slice(0, 1000)));
+  if (!rows.length) return null;
+  const columns = Array.isArray(value.columns) && value.columns.length === width
+    ? value.columns.map(share => num(share, 1, 0.1, 100))
+    : undefined;
+  const family = FONT_FAMILIES.includes(value.family as FontFamily) ? (value.family as FontFamily) : undefined;
+  const headerFill = optionalColor(value.headerFill);
+  const headerColor = optionalColor(value.headerColor);
+  const banded = optionalColor(value.banded);
+  const fill = optionalColor(value.fill);
+  const border = optionalColor(value.border);
+  return {
+    type: "table",
+    ...box,
+    rows,
+    ...(columns ? { columns } : {}),
+    header: value.header !== false,
+    size: num(value.size, 14, 4, 200),
+    color: colorOr(value.color, "#1f2937"),
+    ...(family ? { family } : {}),
+    align: oneOf(value.align, ["left", "center", "right"] as const, "left"),
+    ...(headerFill ? { headerFill } : {}),
+    ...(headerColor ? { headerColor } : {}),
+    ...(banded ? { banded } : {}),
+    ...(fill ? { fill } : {}),
+    ...(border ? { border } : {}),
   };
 }
 
@@ -221,7 +375,11 @@ function readElement(value: unknown): SlideElement | null {
       return {
         type: "shape",
         ...box,
-        shape: oneOf(value.shape, ["rect", "roundRect", "ellipse", "triangle"] as const, "rect"),
+        shape: oneOf(
+          value.shape,
+          SHAPE_KINDS.map(entry => entry.shape),
+          "rect",
+        ),
         ...(fill ? { fill } : {}),
         ...(stroke ? { stroke, strokeWidth: strokeWidth(1.5) } : {}),
         ...readText(value),
@@ -249,6 +407,8 @@ function readElement(value: unknown): SlideElement | null {
         ...(stroke ? { stroke, strokeWidth: strokeWidth(1) } : {}),
       };
     }
+    case "table":
+      return readTable(value, box);
     default:
       return null;
   }
@@ -308,7 +468,56 @@ export function readPresentation(raw: unknown): PresentationBody {
     })
     .filter((entry): entry is SlideEntry => entry !== null);
 
-  return { version: 1, slides, order };
+  const transitions = TRANSITIONS.map(entry => entry.transition);
+  const options: Record<string, SlideOptions> = {};
+  if (isRecord(source.options)) {
+    for (const [key, entry] of Object.entries(source.options).slice(0, 1000)) {
+      if (!isRecord(entry) || !key || key.length > 120) continue;
+      const notes = String(entry.notes ?? "").slice(0, MAX_NOTES_LENGTH);
+      const transition = transitions.includes(entry.transition as Transition) ? (entry.transition as Transition) : undefined;
+      if (notes.trim() || transition) options[key] = { ...(notes.trim() ? { notes } : {}), ...(transition ? { transition } : {}) };
+    }
+  }
+  const transition = transitions.includes(source.transition as Transition) ? (source.transition as Transition) : undefined;
+
+  return {
+    version: 1,
+    slides,
+    order,
+    ...(transition ? { transition } : {}),
+    ...(Object.keys(options).length ? { options } : {}),
+  };
+}
+
+/** A slide's notes or transition changed; an option set back to nothing is dropped. */
+export function withSlideOptions(body: PresentationBody, key: string, change: Partial<SlideOptions>): PresentationBody {
+  const next: SlideOptions = { ...body.options?.[key], ...change };
+  if (!next.notes?.trim()) delete next.notes;
+  if (!next.transition) delete next.transition;
+  const options = { ...body.options };
+  if (Object.keys(next).length) options[key] = next;
+  else delete options[key];
+  return { ...body, options };
+}
+
+/** One transition for every slide: the deck's default, with each slide's own choice cleared. */
+export function applyTransitionToAll(body: PresentationBody, transition: Transition): PresentationBody {
+  let next: PresentationBody = { ...body, transition };
+  for (const key of Object.keys(body.options ?? {})) next = withSlideOptions(next, key, { transition: undefined });
+  return next;
+}
+
+/**
+ * The order a custom slide's build steps play in: by their own order, then
+ * back to front. What the presenter steps through, and the numbers the
+ * builder shows on each element.
+ */
+export function buildSequence(slide: CustomSlide): string[] {
+  return slide.elements
+    .map((element, index) => ({ element, index }))
+    .filter(entry => entry.element.build)
+    .sort((a, b) => a.element.build!.order - b.element.build!.order || a.index - b.index)
+    .map(entry => entry.element.id);
 }
 
 export const serializePresentation = (body: PresentationBody): string => JSON.stringify(readPresentation(body));
@@ -485,7 +694,7 @@ export function layoutSlide(layout: SlideLayout, frame: Frame): CustomSlide {
 export function slideName(slide: CustomSlide): string {
   if (slide.name) return slide.name;
   for (const element of slide.elements) {
-    if (element.type !== "shape") continue;
+    if (element.type !== "shape" || element.code) continue;
     const line = element.text.split("\n").find(part => part.trim());
     if (line) return line.trim().slice(0, 60);
   }

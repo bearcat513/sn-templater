@@ -10,9 +10,11 @@ import './styles/controls.css'
 import './styles/display.css'
 import './styles/layout.css'
 import './styles/designer.css'
+import './styles/editors.css'
 import './styles/sheet.css'
 import './styles/builder.css'
 import './styles/canvas.css'
+import './styles/motion.css'
 import './styles/devtools.css'
 
 // Records from the first request on; `/me` then says whether to keep it or drop it.

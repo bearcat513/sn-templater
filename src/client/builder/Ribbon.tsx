@@ -1,6 +1,6 @@
 import React from 'react'
 import { FONT_FAMILIES, type FontFamily } from '../engine/pdfFonts'
-import type { ShapeElement } from '../engine/presentation'
+import { SHAPE_KINDS, type ShapeElement, type ShapeKind, type TableElement } from '../engine/presentation'
 import { Icon, type IconName } from '../ui/icons'
 import { NumberInput, Select, cx } from '../ui/controls'
 import { Menu } from '../ui/overlays'
@@ -44,6 +44,30 @@ export function ToolButton({
     )
 }
 
+export const SHAPE_ICONS: Record<ShapeKind, IconName> = {
+    rect: 'square',
+    roundRect: 'square',
+    ellipse: 'circle',
+    triangle: 'triangle',
+    rightTriangle: 'triangle',
+    diamond: 'diamond',
+    pentagon: 'hexagon',
+    hexagon: 'hexagon',
+    parallelogram: 'square',
+    trapezoid: 'square',
+    chevron: 'chevronRight',
+    arrow: 'arrowRight',
+    star: 'star',
+}
+
+const TABLE_SIZES: [number, number][] = [
+    [2, 2],
+    [3, 3],
+    [4, 3],
+    [5, 4],
+    [6, 2],
+]
+
 /**
  * The strip above the canvas: insert things, set the type of the selected
  * shapes, and stack them. Everything here is also in the inspector; this is
@@ -51,10 +75,17 @@ export function ToolButton({
  */
 export function Ribbon({ editor }: { editor: SlideEditor }) {
     const shapes = editor.selected.filter((element): element is ShapeElement => element.type === 'shape')
-    const first = shapes[0]
+    // A table's text takes a face, a size, a colour and an alignment too; bold and bullets are a shape's.
+    const textual = editor.selected.filter(
+        (element): element is ShapeElement | TableElement => element.type === 'shape' || element.type === 'table'
+    )
+    const first = textual[0]
     const hasText = Boolean(first)
+    const hasShapes = shapes.length > 0
     const all = (test: (shape: ShapeElement) => boolean) => shapes.length > 0 && shapes.every(test)
-    const textPatch = (patch: Partial<ShapeElement>, merge?: string) =>
+    const textPatch = (patch: Partial<Pick<ShapeElement, 'family' | 'size' | 'color' | 'align'>>, merge?: string) =>
+        editor.patch(element => (element.type === 'shape' || element.type === 'table' ? patch : {}), merge)
+    const shapePatch = (patch: Partial<ShapeElement>, merge?: string) =>
         editor.patch(element => (element.type === 'shape' ? patch : {}), merge)
     const some = editor.selection.length > 0
 
@@ -66,16 +97,26 @@ export function Ribbon({ editor }: { editor: SlideEditor }) {
                     label="Shapes"
                     icon="square"
                     align="start"
-                    items={[
-                        { label: 'Rectangle', icon: 'square', onSelect: () => editor.insertShape('rect') },
-                        { label: 'Rounded rectangle', icon: 'square', onSelect: () => editor.insertShape('roundRect') },
-                        { label: 'Ellipse', icon: 'circle', onSelect: () => editor.insertShape('ellipse') },
-                        { label: 'Triangle', icon: 'triangle', onSelect: () => editor.insertShape('triangle') },
-                    ]}
+                    items={SHAPE_KINDS.map(({ shape, label }) => ({
+                        label,
+                        icon: SHAPE_ICONS[shape],
+                        onSelect: () => editor.insertShape(shape),
+                    }))}
                 />
                 <ToolButton icon="line" label="Line" onClick={() => editor.insertLine(false)} />
                 <ToolButton icon="arrowRight" label="Arrow" onClick={() => editor.insertLine(true)} />
                 <ToolButton icon="image" label="Picture" onClick={() => editor.insertImage()} />
+                <Menu
+                    label="Table"
+                    icon="table"
+                    align="start"
+                    items={TABLE_SIZES.map(([rows, columns]) => ({
+                        label: `${columns} columns × ${rows} rows`,
+                        icon: 'table' as const,
+                        onSelect: () => editor.insertTable(rows, columns),
+                    }))}
+                />
+                <ToolButton icon="code" label="Code box" onClick={editor.insertCode} />
             </div>
 
             <div className="tp-ribbon__group" aria-label="Font">
@@ -99,25 +140,25 @@ export function Ribbon({ editor }: { editor: SlideEditor }) {
                 </div>
                 <ToolButton
                     label="Bold (Ctrl+B)"
-                    disabled={!hasText}
+                    disabled={!hasShapes}
                     active={all(shape => Boolean(shape.bold))}
-                    onClick={() => textPatch({ bold: !all(shape => Boolean(shape.bold)) || undefined })}
+                    onClick={() => shapePatch({ bold: !all(shape => Boolean(shape.bold)) || undefined })}
                 >
                     <strong>B</strong>
                 </ToolButton>
                 <ToolButton
                     label="Italic (Ctrl+I)"
-                    disabled={!hasText}
+                    disabled={!hasShapes}
                     active={all(shape => Boolean(shape.italic))}
-                    onClick={() => textPatch({ italic: !all(shape => Boolean(shape.italic)) || undefined })}
+                    onClick={() => shapePatch({ italic: !all(shape => Boolean(shape.italic)) || undefined })}
                 >
                     <em>I</em>
                 </ToolButton>
                 <ToolButton
                     label="Underline (Ctrl+U)"
-                    disabled={!hasText}
+                    disabled={!hasShapes}
                     active={all(shape => Boolean(shape.underline))}
-                    onClick={() => textPatch({ underline: !all(shape => Boolean(shape.underline)) || undefined })}
+                    onClick={() => shapePatch({ underline: !all(shape => Boolean(shape.underline)) || undefined })}
                 >
                     <span style={{ textDecoration: 'underline' }}>U</span>
                 </ToolButton>
@@ -140,16 +181,26 @@ export function Ribbon({ editor }: { editor: SlideEditor }) {
                         icon={align === 'left' ? 'textLeft' : align === 'center' ? 'textCenter' : 'textRight'}
                         label={`Align text ${align}`}
                         disabled={!hasText}
-                        active={hasText && all(shape => shape.align === align)}
+                        active={hasText && textual.every(element => element.align === align)}
                         onClick={() => textPatch({ align })}
                     />
                 ))}
                 <ToolButton
                     icon="list"
                     label="Bullets"
-                    disabled={!hasText}
+                    disabled={!hasShapes}
                     active={all(shape => Boolean(shape.bullets))}
-                    onClick={() => textPatch({ bullets: !all(shape => Boolean(shape.bullets)) || undefined })}
+                    onClick={() => shapePatch({ bullets: !all(shape => Boolean(shape.bullets)) || undefined })}
+                />
+            </div>
+
+            <div className="tp-ribbon__group" aria-label="Clipboard">
+                <ToolButton
+                    icon="brush"
+                    label={editor.painter ? 'Format painter: click an element to paint it (Esc to stop)' : 'Format painter (Ctrl+Shift+C)'}
+                    disabled={!editor.painter && editor.selection.length !== 1}
+                    active={Boolean(editor.painter)}
+                    onClick={editor.togglePainter}
                 />
             </div>
 

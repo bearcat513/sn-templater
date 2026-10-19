@@ -15,22 +15,27 @@
  */
 import { renderCustomSlide } from "./freeform";
 import { decodeImage, imageBox, type EmbeddableImage } from "./image";
+import { recordUrl, safeUrl } from "./links";
 import { PdfDocument, DEFAULT_MARGINS, type TableCell, type TableColumn } from "./pdf";
-import { measureText } from "./pdfFonts";
+import { measureText, type FontFamily } from "./pdfFonts";
 import type { CustomSlide } from "./presentation";
 import { fillTokens } from "./tokens";
 import {
   DEFAULT_PAGE,
   blockStrings,
+  calloutColors,
   defaultStyle,
+  referenceToken,
   relatedKey,
   templateStrings,
   type BlockAlign,
+  type CodeBlock,
   type PdfBlock,
   type PdfHeader,
   type PdfPageSetup,
   type PdfStyle,
   type PdfTemplate,
+  type ReferenceBlock,
   type RelatedListBlock,
 } from "./template";
 
@@ -111,6 +116,8 @@ type RenderContext = {
   page: PdfPageSetup;
   style: PdfStyle;
   fill: (text: string, extra?: Record<string, string>) => string;
+  /** The section's own values, for what is looked up rather than filled — a sys_id, the instance. */
+  values: Record<string, string>;
   related: Record<string, RelatedRows>;
   picture: PictureResolver;
   problems: Set<string>;
@@ -218,9 +225,24 @@ function renderSections(
     started = true;
     const fill = filler(section.values);
     if (section.custom) {
-      renderCustomSlide(section.custom, { document, family: page.family, fill, picture });
+      renderCustomSlide(section.custom, {
+        document,
+        family: page.family,
+        fill,
+        picture,
+        base: section.values["url.instance"],
+      });
     } else {
-      const context: RenderContext = { document, page, style, fill, related: section.related, picture, problems };
+      const context: RenderContext = {
+        document,
+        page,
+        style,
+        fill,
+        values: section.values,
+        related: section.related,
+        picture,
+        problems,
+      };
       for (const block of section.blocks) renderBlock(block, context);
     }
     claim({
@@ -585,11 +607,353 @@ function renderBlock(block: PdfBlock, context: RenderContext): void {
       break;
     }
 
+    case "reference": {
+      renderReference(block, context);
+      break;
+    }
+
+    case "code": {
+      renderCode(block, context);
+      break;
+    }
+
+    case "link": {
+      const address = fill(block.url);
+      const label = fill(block.text);
+      const shown = label.trim() ? label : address;
+      if (!shown.trim()) break;
+      const url = safeUrl(address, context.values["url.instance"]);
+      if (address.trim() && !url) {
+        context.problems.add(`A link to “${address.slice(0, 80)}” is not a web, mail or phone address, so it prints as text`);
+      }
+      document.text(shown, {
+        size: block.size ?? page.fontSize,
+        bold: block.bold,
+        color: block.color ?? page.accentColor,
+        align: alignOf(block.align),
+        spaceAfter: block.spaceAfter ?? style.paragraphSpacing,
+        lineHeight: style.lineHeight,
+        underline: Boolean(url),
+        ...(url ? { link: url } : {}),
+      });
+      break;
+    }
+
+    case "callout": {
+      renderCallout(block, context);
+      break;
+    }
+
+    case "list": {
+      const size = block.size ?? page.fontSize;
+      // An entry that fills to several lines — a multi-line field — is that many entries.
+      const entries = block.items
+        .flatMap(item => fill(item).split(/\r?\n/))
+        .map(entry => entry.trim())
+        .filter(Boolean);
+      if (!entries.length) break;
+
+      const indent = listIndent(block.style, size, entries.length);
+      const width = document.contentWidth - indent;
+      const lineHeight = size * style.lineHeight;
+      const textStyle = { size, color: page.textColor, lineHeight: style.lineHeight, spaceAfter: size * 0.25 };
+
+      entries.forEach((entry, index) => {
+        // The marker and its entry's first lines move to the next page together.
+        const height = document.text(entry, textStyle, { x: document.left + indent, width, draw: false });
+        document.ensureRoom(Math.min(height, lineHeight * 2));
+        const y = document.y;
+        const x = document.left;
+        if (block.style === "number") {
+          const label = `${index + 1}.`;
+          document.drawTextAt(label, x + indent - size * 0.45 - measureText(label, page.family, size), y, {
+            size,
+            color: page.mutedColor,
+          });
+        } else if (block.style === "check") {
+          const box = size * 0.72;
+          document.drawShape("roundRect", x + size * 0.05, y + size * 0.12, box, box, {
+            stroke: page.mutedColor,
+            strokeWidth: 0.75,
+            radius: box * 0.18,
+          });
+        } else {
+          document.drawTextAt("•", x + size * 0.15, y, { size, color: page.accentColor });
+        }
+        document.text(entry, textStyle, { x: x + indent, width });
+      });
+      document.moveDown(block.spaceAfter ?? style.paragraphSpacing);
+      break;
+    }
+
+    case "table": {
+      const size = block.fontSize ?? page.fontSize - 0.5;
+      const columns: TableColumn[] = block.columns.map(column => {
+        const header = fill(column.header);
+        return {
+          header: style.table.headerUppercase ? header.toUpperCase() : header,
+          width: column.width,
+          align: alignOf(column.align),
+        };
+      });
+      const rows: TableCell[][] = block.rows.map(row =>
+        block.columns.map((_, index) => ({ text: fill(row[index] ?? ""), color: page.textColor })),
+      );
+      if (!rows.length && !columns.some(column => column.header.trim())) break;
+      // A header alone at the foot of a page says nothing.
+      document.ensureRoom((size * 1.35 + style.table.cellPadding * 2) * Math.min(2, rows.length + 1));
+      document.table({
+        columns,
+        rows,
+        fontSize: size,
+        headerFill: block.headerFill ?? style.table.headerFill,
+        headerColor: style.table.headerColor ?? page.mutedColor,
+        zebra: block.zebra ?? style.table.zebra,
+        gridColor: style.table.gridColor,
+        rowLines: style.table.rowLines,
+        cellPadding: style.table.cellPadding,
+      });
+      document.moveDown(8);
+      break;
+    }
+
     case "pageBreak": {
       document.addPage();
       break;
     }
   }
+}
+
+/** How far a list's entries sit in from its markers: wide enough for the longest number. */
+export const listIndent = (style: "bullet" | "number" | "check", size: number, count: number): number =>
+  style === "number" ? size * (String(count).length * 0.6 + 1.1) : size * 1.3;
+
+/* ------------------------------ reference card ---------------------------- */
+
+/** Space inside a card or a callout, and the width of the coloured edge down its left side. */
+export const CARD_PADDING = 10;
+export const CARD_EDGE = 3;
+
+/** The address a reference block's title links to, or null when it should not link. */
+export function referenceLink(block: ReferenceBlock, values: Record<string, string>): string | null {
+  if (!block.link || !block.table) return null;
+  const sysId = values[`raw.${block.field}`] ?? "";
+  const base = values["url.instance"];
+  return base && /^[0-9a-f]{32}$/i.test(sysId) ? recordUrl(base, block.table, sysId) : null;
+}
+
+/**
+ * A reference record: the fields of the record one of this record's
+ * reference fields points at, as a card — or, laid out plain, as a field list
+ * under a title. An empty reference prints its empty text, or nothing.
+ */
+function renderReference(block: ReferenceBlock, context: RenderContext): void {
+  const { document, page, style, fill } = context;
+  if (!block.field) return;
+
+  const sysId = context.values[`raw.${block.field}`] ?? "";
+  if (!sysId.trim()) {
+    if (block.emptyText) {
+      document.text(fill(block.emptyText), { size: page.fontSize - 0.5, italic: true, color: page.mutedColor, spaceAfter: 6 });
+    }
+    return;
+  }
+
+  const accent = block.color ?? page.accentColor;
+  const url = referenceLink(block, context.values);
+  const title = block.title ? fill(block.title) : "";
+  const rows = block.rows.map(row => ({ label: fill(row.label), value: fill(referenceToken(block, row.field)) }));
+  const titleStyle = {
+    size: page.fontSize + 1,
+    bold: true,
+    color: accent,
+    spaceAfter: rows.length ? 4 : 0,
+    lineHeight: style.lineHeight,
+    underline: Boolean(url),
+    ...(url ? { link: url } : {}),
+    ...(style.headingFamily ? { family: style.headingFamily } : {}),
+  };
+
+  if (block.layout === "plain") {
+    if (title) document.text(title, titleStyle);
+    renderBlock({ type: "fields", rows: rows.map(row => ({ label: row.label, value: row.value })) }, context);
+    document.moveDown(4);
+    return;
+  }
+
+  const x = document.left + CARD_EDGE + CARD_PADDING;
+  const width = document.contentWidth - CARD_EDGE - CARD_PADDING * 2;
+  const labelWidth = Math.min(140, width * 0.38);
+  const valueWidth = width - labelWidth;
+  const bodyStyle = { size: page.fontSize, color: page.textColor, lineHeight: style.lineHeight };
+  const labelStyle = { ...bodyStyle, color: page.mutedColor };
+  const rowGap = 2;
+
+  const titleHeight = title ? document.text(title, titleStyle, { x, width, draw: false }) : 0;
+  const heights = rows.map(row =>
+    Math.max(
+      document.text(row.label, labelStyle, { x, width: labelWidth - 6, draw: false }),
+      document.text(row.value || " ", bodyStyle, { x: x + labelWidth, width: valueWidth, draw: false }),
+    ),
+  );
+  const height = CARD_PADDING * 2 + titleHeight + heights.reduce((sum, each) => sum + each + rowGap, 0);
+
+  // Taller than a page, a box cannot hold it: draw it plain instead.
+  if (height > document.contentBottom - document.margins.top) {
+    renderReference({ ...block, layout: "plain" }, context);
+    return;
+  }
+
+  document.ensureRoom(height);
+  const top = document.y;
+  document.drawShape("rect", document.left, top, document.contentWidth, height, {
+    fill: "#fafafa",
+    stroke: style.table.gridColor,
+    strokeWidth: 0.75,
+  });
+  document.drawRect(document.left, top, CARD_EDGE, height, accent);
+
+  document.y = top + CARD_PADDING;
+  if (title) document.text(title, titleStyle, { x, width });
+  rows.forEach((row, index) => {
+    const y = document.y;
+    document.text(row.label, labelStyle, { x, width: labelWidth - 6 });
+    document.y = y;
+    document.text(row.value, bodyStyle, { x: x + labelWidth, width: valueWidth });
+    document.y = y + heights[index]! + rowGap;
+  });
+  document.y = top + height;
+  document.moveDown(10);
+}
+
+/* ---------------------------------- code --------------------------------- */
+
+/** The fixed-width face code is set in, on paper and on screen. */
+export const CODE_FAMILY: FontFamily = "courier";
+
+/** Courier's every glyph is 600/1000 em, which is what lets code be broken by count. */
+const CODE_ADVANCE = 0.6;
+
+export const CODE_LINE_HEIGHT = 1.4;
+export const CODE_PADDING = 8;
+export const DEFAULT_CODE_BACKGROUND = "#f4f4f5";
+
+/** Code as the lines it is drawn in: tabs as four spaces, nothing trimmed but the trailing blank lines. */
+export const codeLines = (code: string): string[] =>
+  code.replace(/\r\n?/g, "\n").replace(/\t/g, "    ").replace(/\n+$/, "").split("\n");
+
+/**
+ * A code block: a tinted box of fixed-width lines, broken where they run past
+ * the box rather than at spaces — code's spaces are content. A block longer
+ * than the page continues in a box of its own on the next.
+ */
+function renderCode(block: CodeBlock, context: RenderContext): void {
+  const { document, page, fill } = context;
+  const source = fill(block.code);
+  const title = block.title ? fill(block.title) : "";
+  if (!source.trim() && !title.trim()) return;
+
+  const size = block.size ?? Math.max(6, page.fontSize - 1);
+  const lineHeight = size * CODE_LINE_HEIGHT;
+  const charWidth = size * CODE_ADVANCE;
+  const raw = codeLines(source);
+  const gutter = block.lineNumbers ? String(raw.length).length + 2 : 0;
+  const perLine = Math.max(8, Math.floor((document.contentWidth - CODE_PADDING * 2) / charWidth) - gutter);
+  const color = block.color ?? "#18181b";
+  const background = block.background ?? DEFAULT_CODE_BACKGROUND;
+
+  const lines: { number?: number; text: string }[] = [];
+  raw.forEach((line, index) => {
+    if (!line.length) lines.push({ number: index + 1, text: "" });
+    for (let at = 0; at < line.length; at += perLine) {
+      lines.push({ number: at === 0 ? index + 1 : undefined, text: line.slice(at, at + perLine) });
+    }
+  });
+
+  const header = title ? size * 1.6 : 0;
+  document.ensureRoom(CODE_PADDING * 2 + header + lineHeight * Math.min(3, lines.length));
+
+  let next = 0;
+  let first = true;
+  do {
+    if (!first) document.addPage();
+    const top = document.y;
+    const heading = first ? header : 0;
+    const fit = Math.max(1, Math.floor((document.contentBottom - top - CODE_PADDING * 2 - heading) / lineHeight));
+    const run = lines.slice(next, next + fit);
+    const height = CODE_PADDING * 2 + heading + run.length * lineHeight;
+
+    document.drawShape("roundRect", document.left, top, document.contentWidth, height, { fill: background, radius: 4 });
+    if (heading) {
+      document.drawTextAt(title, document.left + CODE_PADDING, top + CODE_PADDING, {
+        size: Math.max(6, size - 1),
+        bold: true,
+        color: page.mutedColor,
+      });
+    }
+    run.forEach((line, index) => {
+      const y = top + CODE_PADDING + heading + index * lineHeight + (lineHeight - size) / 2;
+      if (gutter && line.number !== undefined) {
+        document.drawTextAt(String(line.number).padStart(gutter - 2), document.left + CODE_PADDING, y, {
+          family: CODE_FAMILY,
+          size,
+          color: page.mutedColor,
+        });
+      }
+      document.drawTextAt(line.text, document.left + CODE_PADDING + gutter * charWidth, y, {
+        family: CODE_FAMILY,
+        size,
+        color,
+      });
+    });
+
+    document.y = top + height;
+    next += run.length;
+    first = false;
+  } while (next < lines.length);
+
+  document.moveDown(block.spaceAfter ?? 8);
+}
+
+/* --------------------------------- callout ------------------------------- */
+
+/**
+ * A callout: a tinted box with a coloured edge, a bold title and its text.
+ * One longer than a page cannot be boxed, so it flows under a rule in its
+ * colour instead.
+ */
+function renderCallout(block: Extract<PdfBlock, { type: "callout" }>, context: RenderContext): void {
+  const { document, page, style, fill } = context;
+  const { color, fill: tint } = calloutColors(block.tone, block.color);
+  const title = block.title ? fill(block.title) : "";
+  const body = fill(block.text);
+  if (!title.trim() && !body.trim()) return;
+
+  const x = document.left + CARD_EDGE + CARD_PADDING;
+  const width = document.contentWidth - CARD_EDGE - CARD_PADDING * 2;
+  const titleStyle = { size: page.fontSize, bold: true, color, spaceAfter: body.trim() ? 2 : 0, lineHeight: style.lineHeight };
+  const bodyStyle = { size: page.fontSize, color: page.textColor, lineHeight: style.lineHeight };
+  const titleHeight = title ? document.text(title, titleStyle, { x, width, draw: false }) : 0;
+  const bodyHeight = body.trim() ? document.text(body, bodyStyle, { x, width, draw: false }) : 0;
+  const height = CARD_PADDING * 2 + titleHeight + bodyHeight;
+
+  if (height > document.contentBottom - document.margins.top) {
+    document.rule({ color, thickness: 2, spaceBefore: 0, spaceAfter: 4 });
+    if (title) document.text(title, titleStyle);
+    if (bodyHeight) document.text(body, bodyStyle);
+    document.moveDown(8);
+    return;
+  }
+
+  document.ensureRoom(height);
+  const top = document.y;
+  document.drawRect(document.left, top, document.contentWidth, height, tint);
+  document.drawRect(document.left, top, CARD_EDGE, height, color);
+  document.y = top + CARD_PADDING;
+  if (title) document.text(title, titleStyle, { x, width });
+  if (bodyHeight) document.text(body, bodyStyle, { x, width });
+  document.y = top + height;
+  document.moveDown(8);
 }
 
 /**

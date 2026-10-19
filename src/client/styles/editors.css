@@ -1,0 +1,38 @@
+/* ---------------------------------------------- block editors, designer */
+
+.tp-code-input {
+  font-size: var(--tp-text-xs);
+  white-space: pre;
+  tab-size: 4;
+}
+
+.tp-list-marker {
+  flex: 0 0 1.5rem;
+  text-align: right;
+  color: var(--tp-text-subtle);
+  font-variant-numeric: tabular-nums;
+}
+
+.tp-field-error {
+  color: var(--tp-critical);
+}
+
+.tp-table-editor {
+  display: grid;
+  gap: var(--tp-space-2);
+  align-items: center;
+  overflow-x: auto;
+  padding-bottom: var(--tp-space-1);
+}
+
+.tp-table-editor__head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tp-space-1);
+  padding-bottom: var(--tp-space-2);
+  border-bottom: 1px solid var(--tp-border);
+}
+
+.tp-table-editor__head .tp-input[type='number'] {
+  width: 4.5rem;
+}

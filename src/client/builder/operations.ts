@@ -12,6 +12,7 @@ import {
     type ShapeElement,
     type ShapeKind,
     type SlideElement,
+    type TableElement,
 } from '../engine/presentation'
 import type { PdfPageSetup } from '../engine/template'
 import type { Slide } from '../slides/paginate'
@@ -206,13 +207,16 @@ export function newTextBox(sheet: Sheet): ShapeElement {
     }
 }
 
+/** Shapes that look wrong stretched: they start as wide as they are tall. */
+const SQUARE_SHAPES: ShapeKind[] = ['ellipse', 'triangle', 'rightTriangle', 'diamond', 'pentagon', 'hexagon', 'star']
+
 export function newShape(sheet: Sheet, shape: ShapeKind): ShapeElement {
     const side = Math.round(Math.min(sheet.width, sheet.height) * 0.3)
     return {
         type: 'shape',
         shape,
         id: newId(),
-        ...centred(sheet, shape === 'ellipse' || shape === 'triangle' ? side : Math.round(side * 1.6), side),
+        ...centred(sheet, SQUARE_SHAPES.includes(shape) ? side : Math.round(side * 1.6), side),
         fill: sheet.page.accentColor,
         text: '',
         size: Math.max(14, sheet.page.fontSize + 2),
@@ -235,6 +239,150 @@ export function newLine(sheet: Sheet, arrow: boolean): LineElement {
         strokeWidth: 2,
         ...(arrow ? { arrowEnd: true } : {}),
     }
+}
+
+/** A box of code: a dark panel, a fixed-width face, every space kept. */
+export function newCodeBox(sheet: Sheet): ShapeElement {
+    return {
+        type: 'shape',
+        shape: 'roundRect',
+        id: newId(),
+        ...centred(sheet, Math.round(sheet.width * 0.6), Math.round(sheet.height * 0.4)),
+        fill: '#0f172a',
+        text: '',
+        placeholder: 'Paste or type code',
+        size: 14,
+        color: '#e2e8f0',
+        family: 'courier',
+        align: 'left',
+        valign: 'top',
+        lineHeight: 1.35,
+        code: true,
+    }
+}
+
+/** A table of `rows` by `columns`, its first row a header in the deck's accent. */
+export function newTable(sheet: Sheet, rows: number, columns: number): TableElement {
+    const size = Math.max(12, sheet.page.fontSize)
+    const w = Math.round(Math.min(sheet.width * 0.8, columns * 160))
+    const h = Math.round(Math.min(sheet.height * 0.7, rows * size * 2.4))
+    return {
+        type: 'table',
+        id: newId(),
+        ...centred(sheet, w, h),
+        rows: Array.from({ length: rows }, (_, row) =>
+            Array.from({ length: columns }, (_, column) => (row === 0 ? `Heading ${column + 1}` : ''))
+        ),
+        header: true,
+        size,
+        color: sheet.page.textColor,
+        align: 'left',
+        headerFill: sheet.page.accentColor,
+        headerColor: '#ffffff',
+        banded: '#f3f4f6',
+        fill: '#ffffff',
+        border: '#d1d5db',
+    }
+}
+
+/* --------------------------------- tables -------------------------------- */
+
+/** A table with one cell's text changed. */
+export const setCell = (table: TableElement, row: number, column: number, text: string): Partial<TableElement> => ({
+    rows: table.rows.map((cells, at) => (at === row ? cells.map((cell, index) => (index === column ? text : cell)) : cells)),
+})
+
+/** A row added after `at` (or at the end), keeping each row's height: the table grows to hold it. */
+export function insertRow(table: TableElement, at = table.rows.length - 1): Partial<TableElement> {
+    const width = table.rows[0]?.length ?? 1
+    const rows = [...table.rows]
+    rows.splice(at + 1, 0, Array.from({ length: width }, () => ''))
+    return { rows, h: Math.round((table.h / table.rows.length) * rows.length) }
+}
+
+export function removeRow(table: TableElement, at: number): Partial<TableElement> {
+    if (table.rows.length <= 1) return {}
+    const rows = table.rows.filter((_, index) => index !== at)
+    return { rows, h: Math.max(8, Math.round((table.h / table.rows.length) * rows.length)) }
+}
+
+/** A column added after `at` (or at the end), taking an equal share; the table keeps its width. */
+export function insertColumn(table: TableElement, at = (table.rows[0]?.length ?? 1) - 1): Partial<TableElement> {
+    const width = table.rows[0]?.length ?? 1
+    const shares = table.columns ?? Array.from({ length: width }, () => 1)
+    const average = shares.reduce((sum, share) => sum + share, 0) / shares.length
+    const columns = [...shares]
+    columns.splice(at + 1, 0, average)
+    return {
+        rows: table.rows.map(cells => {
+            const next = [...cells]
+            next.splice(at + 1, 0, '')
+            return next
+        }),
+        columns: table.columns ? columns : undefined,
+    }
+}
+
+export function removeColumn(table: TableElement, at: number): Partial<TableElement> {
+    const width = table.rows[0]?.length ?? 1
+    if (width <= 1) return {}
+    return {
+        rows: table.rows.map(cells => cells.filter((_, index) => index !== at)),
+        columns: table.columns?.filter((_, index) => index !== at),
+    }
+}
+
+/* -------------------------------- formatting ----------------------------- */
+
+/** What the format painter copies: how an element looks, and nothing about where it is or what it says. */
+export type CopiedStyle = { type: SlideElement['type']; style: Record<string, unknown> }
+
+const SHAPE_STYLE = ['fill', 'stroke', 'strokeWidth', 'size', 'color', 'bold', 'italic', 'underline', 'align', 'valign', 'family', 'bullets', 'lineHeight', 'code', 'opacity'] as const
+const LINE_STYLE = ['stroke', 'strokeWidth', 'dashed', 'arrowStart', 'arrowEnd', 'opacity'] as const
+const IMAGE_STYLE = ['stroke', 'strokeWidth', 'opacity'] as const
+const TABLE_STYLE = ['size', 'color', 'family', 'align', 'header', 'headerFill', 'headerColor', 'banded', 'fill', 'border', 'opacity'] as const
+
+const STYLE_KEYS: Record<SlideElement['type'], readonly string[]> = {
+    shape: SHAPE_STYLE,
+    line: LINE_STYLE,
+    image: IMAGE_STYLE,
+    table: TABLE_STYLE,
+}
+
+export function styleOf(element: SlideElement): CopiedStyle {
+    const style: Record<string, unknown> = {}
+    for (const key of STYLE_KEYS[element.type]) style[key] = (element as Record<string, unknown>)[key]
+    return { type: element.type, style }
+}
+
+/**
+ * The copied look, as a patch for another element. Only what makes sense on
+ * the target is carried over — a line's dashes do not reach a picture, but
+ * any outline reaches anything that has one, and text styles reach a table.
+ */
+export function styleFor(element: SlideElement, copied: CopiedStyle): Partial<SlideElement> {
+    const allowed = new Set(STYLE_KEYS[element.type])
+    const patch: Record<string, unknown> = {}
+    for (const [key, value] of Object.entries(copied.style)) if (allowed.has(key)) patch[key] = value
+    return patch as Partial<SlideElement>
+}
+
+/* --------------------------------- builds -------------------------------- */
+
+/** The next place in a slide's build sequence. */
+export const nextBuildOrder = (slide: CustomSlide): number =>
+    Math.max(0, ...slide.elements.map(element => element.build?.order ?? 0)) + 1
+
+/** One element's build moved earlier or later, swapping places with its neighbour in the sequence. */
+export function moveBuild(slide: CustomSlide, sequence: string[], id: string, by: -1 | 1): CustomSlide {
+    const at = sequence.indexOf(id)
+    const other = sequence[at + by]
+    if (at === -1 || !other) return slide
+    // Renumbered first, so two steps that shared an order come apart cleanly.
+    const order = new Map(sequence.map((each, index) => [each, index + 1]))
+    order.set(id, at + by + 1)
+    order.set(other, at + 1)
+    return patchElements(slide, sequence, element => ({ build: { ...element.build!, order: order.get(element.id)! } }))
 }
 
 /** A picture at its own proportions, as large as fits in the middle half of the slide. */

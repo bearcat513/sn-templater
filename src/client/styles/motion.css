@@ -1,0 +1,143 @@
+/* ------------------------------------------- presenting: transitions, builds */
+
+/*
+ * A slide comes in by its transition; going back plays it the other way.
+ * Build steps arrive by their own effect. None of this reaches the PDF.
+ */
+
+.tp-presenter__slide.tp-transition--none {
+  animation: none;
+}
+
+.tp-presenter__slide.tp-transition--fade {
+  animation: tp-fade-in 320ms ease;
+}
+
+.tp-presenter__slide.tp-transition--push {
+  animation: tp-push-in 420ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.tp-presenter__slide.tp-transition--push.is-back {
+  animation-name: tp-push-in-back;
+}
+
+.tp-presenter__slide.tp-transition--wipe {
+  animation: tp-wipe-in 480ms ease-out;
+}
+
+.tp-presenter__slide.tp-transition--wipe.is-back {
+  animation-name: tp-wipe-in-back;
+}
+
+.tp-presenter__slide.tp-transition--zoom {
+  animation: tp-zoom-in 380ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+@keyframes tp-push-in {
+  from { transform: translateX(60%); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+
+@keyframes tp-push-in-back {
+  from { transform: translateX(-60%); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+
+@keyframes tp-wipe-in {
+  from { clip-path: inset(0 100% 0 0); }
+  to { clip-path: inset(0 0 0 0); }
+}
+
+@keyframes tp-wipe-in-back {
+  from { clip-path: inset(0 0 0 100%); }
+  to { clip-path: inset(0 0 0 0); }
+}
+
+@keyframes tp-zoom-in {
+  from { transform: scale(0.82); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+
+/* A build step arriving. `translate` and `scale` compose with the element's own `rotate`. */
+.tp-build--fade {
+  animation: tp-build-fade 450ms ease backwards;
+}
+
+.tp-build--fly {
+  animation: tp-fly-in 500ms cubic-bezier(0.2, 0.7, 0.2, 1) backwards;
+}
+
+.tp-build--zoom {
+  animation: tp-build-zoom 400ms cubic-bezier(0.2, 0.7, 0.2, 1) backwards;
+}
+
+/* `from` only: each step ends on the element's own opacity, not on full. */
+@keyframes tp-build-fade {
+  from { opacity: 0; }
+}
+
+@keyframes tp-fly-in {
+  from { translate: 0 120px; opacity: 0; }
+}
+
+@keyframes tp-build-zoom {
+  from { scale: 0.3; opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tp-presenter__slide,
+  .tp-build {
+    animation: none !important;
+  }
+}
+
+/* A link on a custom slide: the whole element is the target. */
+.tp-free__link {
+  position: absolute;
+  inset: 0;
+  cursor: pointer;
+}
+
+.tp-presenter__slide {
+  cursor: pointer;
+}
+
+/* Code in a shape: every space kept, broken anywhere, as the PDF breaks it. */
+.tp-free__text--code .tp-free__para {
+  word-break: break-all;
+}
+
+/* ---------------------------------------------------------- speaker notes */
+
+.tp-presenter__notes {
+  display: flex;
+  gap: var(--tp-space-4);
+  max-height: 30vh;
+  padding: var(--tp-space-3) var(--tp-space-4);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  background: #11141b;
+}
+
+.tp-presenter__notes-text {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  font-size: 1.05rem;
+  line-height: 1.5;
+  color: #e5e7eb;
+}
+
+.tp-presenter__notes-empty {
+  color: #64748b;
+  font-style: italic;
+}
+
+.tp-presenter__notes-next {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tp-space-2);
+  flex: 0 0 auto;
+  font-size: var(--tp-text-xs);
+  color: #94a3b8;
+}

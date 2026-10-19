@@ -15,13 +15,17 @@ import { isEmbeddableImage } from "./image";
 import { DEFAULT_MARGINS, PAGE_SIZES } from "./pdf";
 import { FONT_FAMILIES, type FontFamily } from "./pdfFonts";
 import {
+  CALLOUT_TONES,
   DEFAULT_PAGE,
   DEFAULT_RELATED_LIMIT,
   MAX_BLOCKS,
   MAX_RELATED_ROWS,
   defaultStyle,
   starterTemplate,
+  type BlockAlign,
+  type CalloutTone,
   type ListColumn,
+  type ListStyle,
   type PdfBlock,
   type PdfHeader,
   type PdfStyle,
@@ -265,6 +269,95 @@ function readBlock(raw: unknown): PdfBlock | null {
           };
         }),
       };
+
+    case "reference": {
+      const layout = input.layout === "plain" ? "plain" : "card";
+      return {
+        type: "reference",
+        field: identifier(input.field),
+        table: identifier(input.table),
+        ...(text(input.title, 200) ? { title: text(input.title, 200) } : {}),
+        rows: (Array.isArray(input.rows) ? input.rows : [])
+          .slice(0, 16)
+          .map(entry => {
+            const row = asRecord(entry);
+            return { label: text(row.label, 120), field: identifier(row.field, 200) };
+          })
+          .filter(row => row.field),
+        layout,
+        ...(input.link === true ? { link: true } : {}),
+        ...(text(input.emptyText, 200) ? { emptyText: text(input.emptyText, 200) } : {}),
+        ...(optionalColor(input.color) ? { color: optionalColor(input.color) } : {}),
+      };
+    }
+
+    case "code":
+      return {
+        type: "code",
+        // Code is the one place whitespace is content: nothing is trimmed.
+        code: prose(input.code, 20_000),
+        ...(text(input.title, 80) ? { title: text(input.title, 80) } : {}),
+        ...(input.size !== undefined ? { size: bounded(input.size, 9, 5, 24) } : {}),
+        ...(input.lineNumbers === true ? { lineNumbers: true } : {}),
+        ...(optionalColor(input.background) ? { background: optionalColor(input.background) } : {}),
+        ...(optionalColor(input.color) ? { color: optionalColor(input.color) } : {}),
+        ...(input.spaceAfter !== undefined ? { spaceAfter: bounded(input.spaceAfter, 8, 0, 200) } : {}),
+      };
+
+    case "link":
+      return {
+        type: "link",
+        text: prose(input.text, 500),
+        url: text(input.url, 2_000),
+        ...(input.size !== undefined ? { size: bounded(input.size, 10, 5, 72) } : {}),
+        ...(align(input.align) ? { align: align(input.align) } : {}),
+        ...(optionalColor(input.color) ? { color: optionalColor(input.color) } : {}),
+        ...(input.bold === true ? { bold: true } : {}),
+        ...(input.spaceAfter !== undefined ? { spaceAfter: bounded(input.spaceAfter, 4, 0, 200) } : {}),
+      };
+
+    case "callout":
+      return {
+        type: "callout",
+        tone: oneOf<CalloutTone>(
+          input.tone,
+          CALLOUT_TONES.map(entry => entry.tone),
+          "info",
+        ),
+        ...(text(input.title, 200) ? { title: text(input.title, 200) } : {}),
+        text: prose(input.text, 8_000),
+        ...(optionalColor(input.color) ? { color: optionalColor(input.color) } : {}),
+      };
+
+    case "list":
+      return {
+        type: "list",
+        style: oneOf<ListStyle>(input.style, ["bullet", "number", "check"], "bullet"),
+        items: (Array.isArray(input.items) ? input.items : []).slice(0, 100).map(item => prose(item, 2_000)),
+        ...(input.size !== undefined ? { size: bounded(input.size, 10, 5, 72) } : {}),
+        ...(input.spaceAfter !== undefined ? { spaceAfter: bounded(input.spaceAfter, 4, 0, 200) } : {}),
+      };
+
+    case "table": {
+      const columns = (Array.isArray(input.columns) ? input.columns : []).slice(0, 12).map(entry => {
+        const column = asRecord(entry);
+        const at: BlockAlign | undefined = align(column.align);
+        return { header: text(column.header, 120), width: bounded(column.width, 1, 0.1, 100), ...(at ? { align: at } : {}) };
+      });
+      const width = Math.max(1, columns.length);
+      return {
+        type: "table",
+        columns: columns.length ? columns : [{ header: "", width: 1 }],
+        // Every row as wide as the header, so a cell cannot go missing in the middle of one.
+        rows: (Array.isArray(input.rows) ? input.rows : []).slice(0, 200).map(entry => {
+          const cells = Array.isArray(entry) ? entry : [];
+          return Array.from({ length: width }, (_, index) => prose(cells[index], 2_000));
+        }),
+        ...(optionalColor(input.headerFill) ? { headerFill: optionalColor(input.headerFill) } : {}),
+        ...(optionalColor(input.zebra) ? { zebra: optionalColor(input.zebra) } : {}),
+        ...(input.fontSize !== undefined ? { fontSize: bounded(input.fontSize, 9, 5, 24) } : {}),
+      };
+    }
 
     case "pageBreak":
       return { type: "pageBreak" };

@@ -33,13 +33,21 @@
  * bytes are already in a filter PDF speaks, and they are copied into the file
  * as they are. The same picture used on every page is one object.
  *
+ * ## Links
+ *
+ * A link is a rectangle on the page and an address, written as a link
+ * annotation with a URI action — the one interactive feature a reader of a
+ * record's PDF reaches for, to open the record itself. Addresses are checked
+ * before they get here (see ./links.ts); this writes what it is given.
+ *
  * ## What is not
  *
- * No embedded fonts, no links, no forms. Each of those is a real feature with
- * a real cost, and none of them is needed to put a priced quote in front of a
- * buyer. The omissions are deliberate rather than pending.
+ * No embedded fonts and no forms. Each of those is a real feature with a real
+ * cost, and neither is needed to put a record in front of a reader. The
+ * omissions are deliberate rather than pending.
  */
 import type { EmbeddableImage } from "./image";
+import { asciiUrl } from "./links";
 import {
   baseFontName,
   encodeWinAnsi,
@@ -157,6 +165,10 @@ export type TextStyle = {
   spaceAfter?: number;
   /** Overrides the document's family for this block. */
   family?: FontFamily;
+  /** A rule under each line, in the text's colour. */
+  underline?: boolean;
+  /** Makes each line a link to this address. Only `text` honours it. */
+  link?: string;
 };
 
 export type TableColumn = {
@@ -232,6 +244,8 @@ type Page = {
   images: Set<string>;
   /** Graphics-state names used — transparency, and nothing else so far. */
   states: Set<string>;
+  /** Link annotations: a rectangle in page coordinates and where it goes. */
+  links: { x: number; y: number; width: number; height: number; url: string }[];
 };
 
 /** A hex string literal, which is how a palette reaches the file. */
@@ -321,7 +335,7 @@ export class PdfDocument {
     this.fontSize = this.options.fontSize;
     this.color = this.options.color;
 
-    this.page = { operators: [], fonts: new Set(), images: new Set(), states: new Set() };
+    this.page = { operators: [], fonts: new Set(), images: new Set(), states: new Set(), links: [] };
     this.pages.push(this.page);
     this.cursor = this.margins.top;
   }
@@ -366,7 +380,7 @@ export class PdfDocument {
   /* ------------------------------- pages -------------------------------- */
 
   addPage(): void {
-    this.page = { operators: [], fonts: new Set(), images: new Set(), states: new Set() };
+    this.page = { operators: [], fonts: new Set(), images: new Set(), states: new Set(), links: [] };
     this.pages.push(this.page);
     this.cursor = this.margins.top;
   }
@@ -641,14 +655,60 @@ export class PdfDocument {
 
   /** A filled polygon through absolute points — an arrowhead. */
   drawPolygon(points: [number, number][], fill: string): void {
+    this.drawPath(points, { fill });
+  }
+
+  /** A closed polygon through absolute points, filled, outlined, or both — a diamond, a star. */
+  drawPath(points: [number, number][], options: { fill?: string; stroke?: string; strokeWidth?: number } = {}): void {
     if (points.length < 3) return;
+    const stroke = options.stroke && (options.strokeWidth ?? 1) > 0 ? options.stroke : undefined;
+    if (!options.fill && !stroke) return;
     const path = points
       .map(([px, py], index) => `${round(px)} ${round(this.toPdfY(py))} ${index === 0 ? "m" : "l"}`)
       .join(" ");
     this.op("q");
-    this.op(colorOp(fill));
-    this.op(`${path} h f`);
+    if (options.fill) this.op(colorOp(options.fill));
+    if (stroke) {
+      this.op(colorOp(stroke, true));
+      this.op(`${round(options.strokeWidth ?? 1)} w`);
+      this.op("1 j");
+    }
+    this.op(`${path} h ${options.fill && stroke ? "B" : options.fill ? "f" : "S"}`);
     this.op("Q");
+  }
+
+  /**
+   * Runs `draw` turned clockwise by `degrees` about a point, as CSS turns an
+   * element about its centre. The turn is a `cm` transform bracketed in
+   * `q … Q`, so text drawn inside turns with the shape it is in, and nothing
+   * drawn afterwards does.
+   */
+  withRotation(degrees: number | undefined, cx: number, cy: number, draw: () => void): void {
+    if (!degrees || !Number.isFinite(degrees) || Math.abs(degrees % 360) < 0.01) {
+      draw();
+      return;
+    }
+    // Clockwise on a y-down page is counter-clockwise in PDF's y-up space.
+    const radians = (-degrees * Math.PI) / 180;
+    const cos = Math.cos(radians);
+    const sin = Math.sin(radians);
+    const px = cx;
+    const py = this.toPdfY(cy);
+    const tx = px - px * cos + py * sin;
+    const ty = py - px * sin - py * cos;
+    this.op("q");
+    this.op(`${round(cos)} ${round(sin)} ${round(-sin)} ${round(cos)} ${round(tx)} ${round(ty)} cm`);
+    draw();
+    this.op("Q");
+  }
+
+  /**
+   * Makes a rectangle of the current page a link. Top-left coordinates, like
+   * everything else here; the address is written as seven-bit ASCII.
+   */
+  link(x: number, y: number, width: number, height: number, url: string): void {
+    if (width <= 0 || height <= 0 || !url) return;
+    this.page.links.push({ x, y, width, height, url: asciiUrl(url) });
   }
 
   /* -------------------------------- blocks ------------------------------- */
@@ -724,6 +784,18 @@ export class PdfDocument {
       }
 
       this.drawTextAt(drawn, lineX, this.cursor, style);
+      if ((style.underline || style.link) && drawn) {
+        const measured = measureText(drawn, style.family ?? this.family, size, { bold: style.bold, italic: style.italic });
+        if (style.underline) {
+          this.drawRule(this.cursor + size * 0.95, {
+            color: style.color ?? this.color,
+            thickness: Math.max(0.5, size * 0.06),
+            from: lineX,
+            to: lineX + measured,
+          });
+        }
+        if (style.link) this.link(lineX, this.cursor, measured, lineHeight, style.link);
+      }
       this.cursor += lineHeight;
     }
 
@@ -1049,6 +1121,20 @@ export class PdfDocument {
         .map(name => `/${name} ${stateIds.get(name)} 0 R`)
         .join(" ");
 
+      // A link is its own annotation object, listed on the page it is on.
+      const annotations = page.links.map(link => {
+        const left = link.x;
+        const bottom = this.toPdfY(link.y + link.height);
+        return add([
+          ...ascii(
+            `<< /Type /Annot /Subtype /Link /Rect [${round(left)} ${round(bottom)} ${round(left + link.width)} ` +
+              `${round(bottom + link.height)}] /Border [0 0 0] /A << /Type /Action /S /URI /URI `,
+          ),
+          ...pdfString(link.url),
+          ...ascii(" >> >>"),
+        ]);
+      });
+
       pageIds.push(
         add(
           ascii(
@@ -1056,6 +1142,7 @@ export class PdfDocument {
               `/MediaBox [0 0 ${round(this.width)} ${round(this.height)}] ` +
               `/Resources << /Font << ${fonts} >>${images ? ` /XObject << ${images} >>` : ""}` +
               `${states ? ` /ExtGState << ${states} >>` : ""} >> ` +
+              `${annotations.length ? `/Annots [${annotations.map(id => `${id} 0 R`).join(" ")}] ` : ""}` +
               `/Contents ${contentId} 0 R >>`,
           ),
         ),

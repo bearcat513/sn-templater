@@ -70,6 +70,15 @@ const PATHS = {
     distributeV: 'M4 4h16M4 20h16M8 10h8v4H8z',
     bringForward: 'M9 9h11v11H9zM4 15V4h11',
     sendBackward: 'M4 4h11v11H4zM20 9v11H9',
+    link: 'M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1',
+    diamond: 'M12 3l9 9-9 9-9-9z',
+    hexagon: 'M7.5 4h9l4.5 8-4.5 8h-9L3 12z',
+    star: 'M12 3l2.8 5.8 6.2.9-4.5 4.4 1.1 6.2L12 17.4l-5.6 2.9 1.1-6.2L3 9.7l6.2-.9z',
+    rotate: 'M20 11a8 8 0 1 1-2.3-5.7M20 4v5h-5',
+    brush: 'M14 4l6 6-8 8H6v-6zM4 20l2-2',
+    notes: 'M5 4h14v16H5zM9 9h6M9 13h6M9 17h3',
+    animation: 'M4 12h3M9 7l2 2M12 4v3M15 9l2-2M13 13l7 7M13 13l-1 5-3-3-5-1z',
+    transition: 'M4 6h8v12H4zM16 6h4v12h-4M12 12h4',
 } as const
 
 export type IconName = keyof typeof PATHS

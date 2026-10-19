@@ -17,6 +17,12 @@ const BLOCK_ICONS: Record<BlockType, IconName> = {
     divider: 'minus',
     spacer: 'minimize',
     pageBreak: 'copy',
+    reference: 'external',
+    code: 'code',
+    link: 'link',
+    callout: 'info',
+    list: 'list',
+    table: 'table',
 }
 
 type Props = {

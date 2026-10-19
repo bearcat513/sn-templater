@@ -180,6 +180,65 @@ export type RelatedListBlock = {
   fontSize?: number;
 };
 
+/**
+ * A record that one of this record's reference fields points at — the caller,
+ * the configuration item, the assignment group — as a card of its fields.
+ *
+ * Its values are dot-walked tokens (`{{record.caller_id.email}}`), so the
+ * loader fetches them with the record itself and nothing is read twice.
+ */
+export type ReferenceBlock = {
+  type: "reference";
+  /** The reference field on this record, e.g. `caller_id`. */
+  field: string;
+  /** The table it refers to, e.g. `sys_user`. Used for the link to it. */
+  table: string;
+  /** Drawn at the top of the card. Tokens work. Absent is no title. */
+  title?: string;
+  /** Fields of the referenced record: a path on *its* table, and a label. */
+  rows: { label: string; field: string }[];
+  /** A boxed card, or label and value lines like a field list. */
+  layout?: "card" | "plain";
+  /** Makes the title a link to the referenced record on the instance. */
+  link?: boolean;
+  /** What to print when the field is empty. Empty prints nothing at all. */
+  emptyText?: string;
+  /** The card's edge and title. Absent is the page's accent. */
+  color?: string;
+};
+
+/** A box of preformatted text — a script, a payload, a log line — in a fixed-width face. */
+export type CodeBlock = {
+  type: "code";
+  /** Kept exactly as written: spaces, tabs and blank lines included. Tokens work. */
+  code: string;
+  /** A small label above the code: a language, a file name. */
+  title?: string;
+  size?: number;
+  lineNumbers?: boolean;
+  /** The box. Absent is a light grey. */
+  background?: string;
+  color?: string;
+  spaceAfter?: number;
+};
+
+export type CalloutTone = "info" | "success" | "warning" | "critical" | "neutral";
+
+export const CALLOUT_TONES: { tone: CalloutTone; label: string; color: string; fill: string }[] = [
+  { tone: "info", label: "Info", color: "#2563eb", fill: "#eff6ff" },
+  { tone: "success", label: "Success", color: "#16a34a", fill: "#f0fdf4" },
+  { tone: "warning", label: "Warning", color: "#d97706", fill: "#fffbeb" },
+  { tone: "critical", label: "Critical", color: "#dc2626", fill: "#fef2f2" },
+  { tone: "neutral", label: "Neutral", color: "#52525b", fill: "#f4f4f5" },
+];
+
+export const calloutColors = (tone: CalloutTone | undefined, color?: string): { color: string; fill: string } => {
+  const found = CALLOUT_TONES.find(entry => entry.tone === tone) ?? CALLOUT_TONES[0]!;
+  return { color: color ?? found.color, fill: found.fill };
+};
+
+export type ListStyle = "bullet" | "number" | "check";
+
 export type PdfBlock =
   | { type: "heading"; text: string; size?: number; align?: BlockAlign; color?: string; spaceAfter?: number }
   | {
@@ -207,6 +266,45 @@ export type PdfBlock =
   | RelatedListBlock
   | { type: "stats"; items: { label: string; value: string }[]; color?: string }
   | { type: "signatures"; parties: { label: string; caption?: string }[] }
+  | ReferenceBlock
+  | CodeBlock
+  | {
+      type: "link";
+      /** What is read. Tokens work. Empty uses the address itself. */
+      text: string;
+      /** Where it goes: a web address, mail or phone, or a path on this instance. Tokens work. */
+      url: string;
+      size?: number;
+      align?: BlockAlign;
+      color?: string;
+      bold?: boolean;
+      spaceAfter?: number;
+    }
+  | {
+      type: "callout";
+      tone: CalloutTone;
+      title?: string;
+      text: string;
+      /** Overrides the tone's own colour for the edge and title. */
+      color?: string;
+    }
+  | {
+      type: "list";
+      style: ListStyle;
+      /** One entry each. An entry whose value runs over several lines is that many entries. */
+      items: string[];
+      size?: number;
+      spaceAfter?: number;
+    }
+  | {
+      type: "table";
+      columns: { header: string; width: number; align?: BlockAlign }[];
+      /** Cells, row by row. Tokens work in each. */
+      rows: string[][];
+      headerFill?: string;
+      zebra?: string;
+      fontSize?: number;
+    }
   | { type: "pageBreak" };
 
 export type BlockType = PdfBlock["type"];
@@ -218,6 +316,12 @@ export const BLOCK_TYPES: { type: BlockType; label: string; description: string 
   { type: "columns", label: "Columns", description: "Side-by-side panels of text" },
   { type: "relatedList", label: "Related list", description: "Records that reference this one, as a table" },
   { type: "stats", label: "Stats", description: "A row of large figures — good on a slide" },
+  { type: "reference", label: "Reference record", description: "Fields of a record this one points at, as a card" },
+  { type: "list", label: "List", description: "Bulleted, numbered or checkbox items" },
+  { type: "table", label: "Table", description: "A grid of your own rows and columns" },
+  { type: "callout", label: "Callout", description: "A tinted box for a note, a warning or a summary" },
+  { type: "code", label: "Code", description: "Preformatted text in a fixed-width face — a script, a payload" },
+  { type: "link", label: "Link", description: "Text that opens a web page, an email or the record" },
   { type: "image", label: "Image", description: "A picture in the flow — a logo, a diagram" },
   { type: "signatures", label: "Signatures", description: "Ruled areas for names and dates" },
   { type: "divider", label: "Divider", description: "A horizontal rule" },
@@ -454,10 +558,37 @@ export function blankBlock(type: BlockType, kind: TemplateKind = "document"): Pd
           { label: "Approved by", caption: "Name, title and date" },
         ],
       };
+    case "reference":
+      return { type: "reference", field: "", table: "", rows: [], layout: "card", link: true, emptyText: "" };
+    case "code":
+      return { type: "code", code: "{{record.description}}", title: "", lineNumbers: false };
+    case "link":
+      return { type: "link", text: "Open {{record.number}} in ServiceNow", url: "{{url.record}}" };
+    case "callout":
+      return { type: "callout", tone: "info", title: "Note", text: "{{record.short_description}}" };
+    case "list":
+      return { type: "list", style: "bullet", items: ["{{record.short_description}}", "{{record.state}}"] };
+    case "table":
+      return {
+        type: "table",
+        columns: [
+          { header: "Item", width: 2 },
+          { header: "Value", width: 3 },
+        ],
+        rows: [
+          ["Number", "{{record.number}}"],
+          ["State", "{{record.state}}"],
+        ],
+        headerFill: "#f4f4f5",
+      };
     case "pageBreak":
       return { type: "pageBreak" };
   }
 }
+
+/** The token a reference block reads one of its rows from. */
+export const referenceToken = (block: Pick<ReferenceBlock, "field">, path: string): string =>
+  `{{record.${block.field}.${path}}}`;
 
 /** Every string in a template that tokens can live in, for collecting them. */
 export function templateStrings(template: PdfTemplate): string[] {
@@ -483,6 +614,27 @@ export function blockStrings(block: PdfBlock): string[] {
       return block.items.flatMap(item => [item.label, item.value]);
     case "signatures":
       return block.parties.flatMap(party => [party.label, party.caption ?? ""]);
+    case "reference":
+      // Its own tokens, so the loader fetches the dot-walked fields and the stored sys_id.
+      return block.field
+        ? [
+            block.title ?? "",
+            block.emptyText ?? "",
+            `{{raw.${block.field}}}`,
+            ...(block.link ? ["{{url.instance}}"] : []),
+            ...block.rows.flatMap(row => [row.label, row.field ? referenceToken(block, row.field) : ""]),
+          ]
+        : [];
+    case "code":
+      return [block.code, block.title ?? ""];
+    case "link":
+      return [block.text, block.url];
+    case "callout":
+      return [block.title ?? "", block.text];
+    case "list":
+      return block.items;
+    case "table":
+      return [...block.columns.map(column => column.header), ...block.rows.flat()];
     default:
       return [];
   }

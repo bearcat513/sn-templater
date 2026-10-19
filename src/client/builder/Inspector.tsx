@@ -1,17 +1,61 @@
 import React from 'react'
 import { FONT_FAMILIES, type FontFamily } from '../engine/pdfFonts'
-import type { ImageElement, LineElement, ShapeElement, ShapeKind, SlideElement } from '../engine/presentation'
+import {
+    BUILD_EFFECTS,
+    MAX_TABLE_COLUMNS,
+    MAX_TABLE_ROWS,
+    SHAPE_KINDS,
+    TRANSITIONS,
+    buildSequence,
+    normalizeRotation,
+    type BuildEffect,
+    type ImageElement,
+    type LineElement,
+    type ShapeElement,
+    type ShapeKind,
+    type SlideElement,
+    type TableElement,
+    type Transition,
+} from '../engine/presentation'
 import { ImagePicker } from '../designer/ImagePicker'
-import { ColorField, Field, Input, NumberInput, Segmented, Select, Switch } from '../ui/controls'
+import { Button, ColorField, Field, Input, NumberInput, Segmented, Select, Switch } from '../ui/controls'
 import { Icon } from '../ui/icons'
 import type { SlideEditor } from './editor'
+import { insertColumn, insertRow, moveBuild, nextBuildOrder, removeColumn, removeRow, setCell } from './operations'
 import { FONT_LABELS, ToolButton } from './Ribbon'
 
-const SHAPE_LABELS: Record<ShapeKind, string> = {
-    rect: 'Rectangle',
-    roundRect: 'Rounded rectangle',
-    ellipse: 'Ellipse',
-    triangle: 'Triangle',
+const SHAPE_LABELS = Object.fromEntries(SHAPE_KINDS.map(entry => [entry.shape, entry.label])) as Record<ShapeKind, string>
+
+/** How the slide being edited comes in, and the deck's own choice it falls back to. */
+export type TransitionControl = {
+    value: Transition | undefined
+    deck: Transition
+    onChange: (transition: Transition | undefined) => void
+    onApplyAll: () => void
+}
+
+/** A slide's transition: its own, or the deck's — and a way to make one the deck's. */
+export function TransitionSection({ control }: { control: TransitionControl }) {
+    const label = TRANSITIONS.find(entry => entry.transition === control.deck)?.label ?? control.deck
+    return (
+        <Section title="Transition">
+            <Field label="When this slide comes in" hint="Played by the presenter. The PDF has none.">
+                <Select<Transition | 'deck'>
+                    value={control.value ?? 'deck'}
+                    options={[
+                        { value: 'deck', label: `Deck default (${label})` },
+                        ...TRANSITIONS.map(entry => ({ value: entry.transition, label: entry.label })),
+                    ]}
+                    onChange={value => control.onChange(value === 'deck' ? undefined : value)}
+                />
+            </Field>
+            <div>
+                <Button size="sm" variant="ghost" icon="transition" onClick={control.onApplyAll}>
+                    Apply to all slides
+                </Button>
+            </div>
+        </Section>
+    )
 }
 
 /** The tokens a custom slide's text can use: the deck's, not a record's. */
@@ -29,12 +73,12 @@ const SLIDE_TOKENS = [
  * The right-hand panel: the selected element's every property, or — with
  * nothing selected — the slide's own.
  */
-export function Inspector({ editor }: { editor: SlideEditor }) {
+export function Inspector({ editor, transition }: { editor: SlideEditor; transition: TransitionControl }) {
     const { selected } = editor
     return (
         <div className="tp-inspector">
             {selected.length === 0 ? (
-                <SlideProperties editor={editor} />
+                <SlideProperties editor={editor} transition={transition} />
             ) : selected.length === 1 ? (
                 <ElementProperties editor={editor} element={selected[0]!} />
             ) : (
@@ -55,8 +99,9 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 /* ------------------------------------------------------------------- slide */
 
-function SlideProperties({ editor }: { editor: SlideEditor }) {
+function SlideProperties({ editor, transition }: { editor: SlideEditor; transition: TransitionControl }) {
     const { slide } = editor
+    const sequence = buildSequence(slide)
     return (
         <>
             <Section title="Slide">
@@ -82,6 +127,25 @@ function SlideProperties({ editor }: { editor: SlideEditor }) {
                     label="Show the deck’s letterhead, watermark and footer"
                 />
             </Section>
+            <TransitionSection control={transition} />
+            {sequence.length > 0 && (
+                <Section title="Animations">
+                    <p className="tp-subtle">Shown one click at a time when presenting, in this order.</p>
+                    <ol className="tp-inspector__builds">
+                        {sequence.map(id => {
+                            const element = slide.elements.find(each => each.id === id)!
+                            return (
+                                <li key={id}>
+                                    <button type="button" className="tp-link-button" onClick={() => editor.select([id])}>
+                                        {describe(element)}
+                                    </button>
+                                    <span className="tp-subtle">{BUILD_EFFECTS.find(entry => entry.effect === element.build?.effect)?.label}</span>
+                                </li>
+                            )
+                        })}
+                    </ol>
+                </Section>
+            )}
             <Section title="Tokens">
                 <p className="tp-subtle">Type these into any text on the slide; they are filled in when it is shown.</p>
                 <ul className="tp-inspector__tokens">
@@ -113,10 +177,26 @@ function SlideProperties({ editor }: { editor: SlideEditor }) {
                     <li>
                         <kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Y</kbd> undo, redo
                     </li>
+                    <li>
+                        <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>C</kbd> / <kbd>V</kbd> copy, paste formatting
+                    </li>
+                    <li>
+                        <kbd>Ctrl</kbd>+<kbd>K</kbd> add a link
+                    </li>
                 </ul>
             </Section>
         </>
     )
+}
+
+/** What the animation list calls an element: its first line of text, or what it is. */
+function describe(element: SlideElement): string {
+    if (element.type === 'shape') {
+        const line = element.text.split('\n').find(part => part.trim())
+        return line?.trim().slice(0, 40) || SHAPE_LABELS[element.shape]
+    }
+    if (element.type === 'table') return `Table, ${element.rows[0]?.length ?? 0} × ${element.rows.length}`
+    return element.type === 'image' ? 'Picture' : element.arrowEnd || element.arrowStart ? 'Arrow' : 'Line'
 }
 
 /* ---------------------------------------------------------------- elements */
@@ -136,6 +216,31 @@ function Position({ editor, element }: { editor: SlideEditor; element: SlideElem
                     </Field>
                 ))}
             </div>
+            {element.type !== 'line' && (
+                <Field label="Rotation (°)" hint="Clockwise. Drag the round handle on the slide; Shift turns in 15° steps.">
+                    <div className="tp-row">
+                        <NumberInput
+                            min={-180}
+                            max={180}
+                            value={element.rotation ?? 0}
+                            onChange={value => {
+                                if (value === undefined) return
+                                const rotation = normalizeRotation(value)
+                                editor.patch({ rotation: rotation || undefined }, 'rotation')
+                            }}
+                            aria-label="Rotation"
+                        />
+                        <ToolButton
+                            icon="rotate"
+                            label="Turn 90° clockwise"
+                            onClick={() => editor.patch(each => ({ rotation: normalizeRotation((each.rotation ?? 0) + 90) || undefined }))}
+                        />
+                        <ToolButton label="Reset rotation" disabled={!element.rotation} onClick={() => editor.patch({ rotation: undefined })}>
+                            0°
+                        </ToolButton>
+                    </div>
+                </Field>
+            )}
             <Field label="Align to slide">
                 <AlignButtons editor={editor} />
             </Field>
@@ -179,7 +284,10 @@ function ElementProperties({ editor, element }: { editor: SlideEditor; element: 
             {element.type === 'shape' && <ShapeProperties editor={editor} element={element} />}
             {element.type === 'line' && <LineProperties editor={editor} element={element} />}
             {element.type === 'image' && <ImageProperties editor={editor} element={element} />}
+            {element.type === 'table' && <TableProperties editor={editor} element={element} />}
             <Position editor={editor} element={element} />
+            <LinkSection editor={editor} element={element} />
+            <AnimationSection editor={editor} element={element} />
             <Section title="Arrange">
                 <div className="tp-row tp-row--wrap tp-inspector__tools">
                     <ToolButton icon="bringForward" label="Bring to front" onClick={() => editor.arrange('front')} />
@@ -187,6 +295,153 @@ function ElementProperties({ editor, element }: { editor: SlideEditor; element: 
                     <ToolButton icon="copy" label="Duplicate" onClick={editor.duplicate} />
                     <ToolButton icon="trash" label="Delete" onClick={editor.remove} />
                 </div>
+            </Section>
+        </>
+    )
+}
+
+/** Where clicking the element goes, in the presenter and the PDF. */
+function LinkSection({ editor, element }: { editor: SlideEditor; element: SlideElement }) {
+    return (
+        <Section title="Link">
+            <Field
+                label="Address"
+                hint="https://…, mailto:…, or a path on this instance like /incident_list.do. Opens when the element is clicked while presenting, and in the PDF."
+            >
+                <Input
+                    id="tp-element-link"
+                    value={element.link ?? ''}
+                    placeholder="None"
+                    spellCheck={false}
+                    onChange={event => editor.patch({ link: event.target.value.trim() ? event.target.value : undefined }, 'link')}
+                />
+            </Field>
+        </Section>
+    )
+}
+
+/** Whether the element waits for a click when presenting, how it arrives, and when. */
+function AnimationSection({ editor, element }: { editor: SlideEditor; element: SlideElement }) {
+    const sequence = buildSequence(editor.slide)
+    const at = sequence.indexOf(element.id)
+    return (
+        <Section title="Animation">
+            <Field label="On click" hint="The PDF and the thumbnails show every element.">
+                <Select<BuildEffect | 'none'>
+                    value={element.build?.effect ?? 'none'}
+                    options={[{ value: 'none', label: 'None — always shown' }, ...BUILD_EFFECTS.map(entry => ({ value: entry.effect, label: entry.label }))]}
+                    onChange={effect =>
+                        editor.patch({
+                            build:
+                                effect === 'none'
+                                    ? undefined
+                                    : { effect, order: element.build?.order ?? nextBuildOrder(editor.slide) },
+                        })
+                    }
+                />
+            </Field>
+            {at !== -1 && (
+                <div className="tp-row">
+                    <span className="tp-subtle tp-grow">
+                        Step {at + 1} of {sequence.length}
+                    </span>
+                    <ToolButton
+                        icon="chevronUp"
+                        label="Play earlier"
+                        disabled={at === 0}
+                        onClick={() => editor.change(slide => moveBuild(slide, sequence, element.id, -1))}
+                    />
+                    <ToolButton
+                        icon="chevronDown"
+                        label="Play later"
+                        disabled={at === sequence.length - 1}
+                        onClick={() => editor.change(slide => moveBuild(slide, sequence, element.id, 1))}
+                    />
+                </div>
+            )}
+        </Section>
+    )
+}
+
+function TableProperties({ editor, element }: { editor: SlideEditor; element: TableElement }) {
+    const patch = (changes: Partial<TableElement>, merge?: string) => editor.patch(changes, merge)
+    const rows = element.rows.length
+    const columns = element.rows[0]?.length ?? 1
+    return (
+        <>
+            <Section title={`Table, ${columns} × ${rows}`}>
+                <div className="tp-row tp-row--wrap">
+                    <Button size="sm" icon="plus" disabled={rows >= MAX_TABLE_ROWS} onClick={() => patch(insertRow(element))}>
+                        Row
+                    </Button>
+                    <Button size="sm" icon="plus" disabled={columns >= MAX_TABLE_COLUMNS} onClick={() => patch(insertColumn(element))}>
+                        Column
+                    </Button>
+                    <Button size="sm" icon="minus" variant="ghost" disabled={rows <= 1} onClick={() => patch(removeRow(element, rows - 1))}>
+                        Row
+                    </Button>
+                    <Button size="sm" icon="minus" variant="ghost" disabled={columns <= 1} onClick={() => patch(removeColumn(element, columns - 1))}>
+                        Column
+                    </Button>
+                </div>
+                <div className="tp-inspector__cells" style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>
+                    {element.rows.map((cells, row) =>
+                        cells.map((cell, column) => (
+                            <Input
+                                key={`${row},${column}`}
+                                value={cell}
+                                className={element.header && row === 0 ? 'is-header' : undefined}
+                                aria-label={`Row ${row + 1}, column ${column + 1}`}
+                                onChange={event => patch(setCell(element, row, column, event.target.value), `cell:${row},${column}`)}
+                            />
+                        ))
+                    )}
+                </div>
+                <p className="tp-subtle">
+                    <Icon name="info" size={12} /> Double-click a cell on the slide to type in it. Tokens work in cells.
+                </p>
+                <Switch checked={element.header} onChange={header => patch({ header })} label="Header row" />
+                <div className="tp-grid tp-grid--2">
+                    <ColorField label="Header fill" allowEmpty value={element.headerFill ?? ''} onChange={value => patch({ headerFill: value || undefined }, 'header-fill')} />
+                    <ColorField label="Header text" allowEmpty value={element.headerColor ?? ''} onChange={value => patch({ headerColor: value || undefined }, 'header-color')} />
+                    <ColorField label="Cells" allowEmpty value={element.fill ?? ''} onChange={value => patch({ fill: value || undefined }, 'cell-fill')} />
+                    <ColorField label="Banding" allowEmpty value={element.banded ?? ''} onChange={value => patch({ banded: value || undefined }, 'banded')} />
+                </div>
+                <ColorField label="Grid lines" allowEmpty value={element.border ?? ''} onChange={value => patch({ border: value || undefined }, 'border')} />
+            </Section>
+            <Section title="Text">
+                <div className="tp-grid tp-grid--2">
+                    <Field label="Font">
+                        <Select<FontFamily>
+                            value={element.family ?? editor.sheet.page.family}
+                            options={FONT_FAMILIES.map(family => ({ value: family, label: FONT_LABELS[family] }))}
+                            onChange={family => patch({ family })}
+                        />
+                    </Field>
+                    <Field label="Size (pt)">
+                        <NumberInput
+                            min={4}
+                            max={200}
+                            value={element.size}
+                            onChange={size => size && size >= 4 && patch({ size: Math.min(200, size) }, 'font-size')}
+                            aria-label="Font size"
+                        />
+                    </Field>
+                </div>
+                <ColorField label="Colour" value={element.color} onChange={color => patch({ color }, 'text-color')} />
+                <Field label="Horizontal">
+                    <Segmented
+                        label="Horizontal alignment"
+                        size="sm"
+                        value={element.align}
+                        onChange={align => patch({ align })}
+                        options={[
+                            { value: 'left', label: 'Left', icon: 'textLeft' },
+                            { value: 'center', label: 'Centre', icon: 'textCenter' },
+                            { value: 'right', label: 'Right', icon: 'textRight' },
+                        ]}
+                    />
+                </Field>
             </Section>
         </>
     )
@@ -308,6 +563,11 @@ function ShapeProperties({ editor, element }: { editor: SlideEditor; element: Sh
                         ]}
                     />
                 </Field>
+                <Switch
+                    checked={Boolean(element.code)}
+                    onChange={code => patch({ code: code || undefined, ...(code ? { family: 'courier' as const, bullets: undefined } : {}) })}
+                    label="Code — keep every space"
+                />
                 <Field label="Line spacing">
                     <NumberInput
                         min={0.8}

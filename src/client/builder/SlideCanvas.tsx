@@ -4,16 +4,29 @@ import {
     TEXT_INSET_X,
     TEXT_INSET_Y,
     bulletIndent,
+    cellShape,
     lineEnds,
+    parseCellId,
+    rotatePoint,
+    rotatedBounds,
+    tableCells,
     textFrame,
 } from '../engine/freeform'
-import type { CustomSlide, LineElement, ShapeElement, SlideElement } from '../engine/presentation'
+import {
+    buildSequence,
+    normalizeRotation,
+    type CustomSlide,
+    type LineElement,
+    type ShapeElement,
+    type SlideElement,
+    type TableElement,
+} from '../engine/presentation'
 import type { PdfTemplate } from '../engine/template'
 import { FONT_STACKS } from '../slides/Freeform'
 import type { Slide } from '../slides/paginate'
 import { SlideView } from '../slides/SlideView'
 import { cx } from '../ui/controls'
-import { boundsOf, lineFromEnds, snap, type Box, type Guide } from './operations'
+import { boundsOf, lineFromEnds, setCell, snap, type Box, type Guide } from './operations'
 
 type Handle = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw'
 
@@ -27,7 +40,8 @@ const SNAP_PIXELS = 6
 
 type Drag =
     | { kind: 'move'; start: [number, number]; boxes: Map<string, Box>; moved: boolean; clicked: string | null }
-    | { kind: 'resize'; handle: Handle; start: [number, number]; box: Box; id: string; lock: boolean }
+    | { kind: 'resize'; handle: Handle; start: [number, number]; box: Box; id: string; lock: boolean; rotation: number }
+    | { kind: 'rotate'; center: [number, number]; id: string }
     | { kind: 'end'; which: 'start' | 'end'; line: LineElement }
     | { kind: 'marquee'; start: [number, number]; additive: string[] }
 
@@ -43,6 +57,9 @@ type Props = {
     onEditing: (id: string | null) => void
     onChange: (change: (slide: CustomSlide) => CustomSlide, merge?: string) => void
     onDropImage?: (file: File, at: [number, number]) => void
+    /** The format painter is armed: a click paints an element instead of selecting it. */
+    painting?: boolean
+    onPaint?: (id: string) => void
 }
 
 let dragCount = 0
@@ -68,6 +85,8 @@ export function SlideCanvas({
     onEditing,
     onChange,
     onDropImage,
+    painting,
+    onPaint,
 }: Props) {
     const scale = width / sheet.width
     const height = sheet.height * scale
@@ -78,6 +97,7 @@ export function SlideCanvas({
     const [marquee, setMarquee] = useState<Box | null>(null)
     const elements = slide.custom.elements
     const selected = elements.filter(element => selection.includes(element.id))
+    const sequence = buildSequence(slide.custom)
 
     const toSheet = (event: { clientX: number; clientY: number }): [number, number] => {
         const rect = root.current!.getBoundingClientRect()
@@ -97,8 +117,14 @@ export function SlideCanvas({
 
     const onElementDown = (event: React.PointerEvent, element: SlideElement) => {
         if (event.button !== 0) return
-        if (editing === element.id) {
+        if (editing === element.id || (editing && parseCellId(editing)?.id === element.id)) {
             event.stopPropagation()
+            return
+        }
+        if (painting && onPaint) {
+            event.preventDefault()
+            event.stopPropagation()
+            onPaint(element.id)
             return
         }
         const additive = event.shiftKey || event.metaKey || event.ctrlKey
@@ -136,7 +162,13 @@ export function SlideCanvas({
             box: { x: element.x, y: element.y, w: element.w, h: element.h },
             id: element.id,
             lock: element.type === 'image',
+            rotation: element.type === 'line' ? 0 : (element.rotation ?? 0),
         })
+    }
+
+    const onRotateDown = (event: React.PointerEvent, element: SlideElement) => {
+        if (event.button !== 0) return
+        begin(event, { kind: 'rotate', id: element.id, center: [element.x + element.w / 2, element.y + element.h / 2] })
     }
 
     const onEndDown = (event: React.PointerEvent, line: LineElement, which: 'start' | 'end') => {
@@ -192,8 +224,23 @@ export function SlideCanvas({
             return
         }
 
+        if (current.kind === 'rotate') {
+            const [cx, cy] = current.center
+            let angle = (Math.atan2(point[1] - cy, point[0] - cx) * 180) / Math.PI + 90
+            angle = event.shiftKey ? Math.round(angle / 15) * 15 : Math.round(angle)
+            const rotation = normalizeRotation(angle) || undefined
+            onChange(
+                live => ({
+                    ...live,
+                    elements: live.elements.map(element => (element.id === current.id ? { ...element, rotation } : element)),
+                }),
+                merge.current
+            )
+            return
+        }
+
         if (current.kind === 'resize') {
-            const box = resized(current.box, current.handle, point, current.lock !== event.shiftKey)
+            const box = resizedTurned(current.box, current.handle, point, current.lock !== event.shiftKey, current.rotation)
             onChange(
                 live => ({
                     ...live,
@@ -236,7 +283,7 @@ export function SlideCanvas({
             }
             setMarquee(box)
             const inside = elements
-                .filter(element => intersects(box, element))
+                .filter(element => intersects(box, element.type === 'line' ? element : rotatedBounds(element)))
                 .map(element => element.id)
             onSelect([...new Set([...current.additive, ...inside])])
         }
@@ -256,11 +303,21 @@ export function SlideCanvas({
     const editingShape = elements.find(
         (element): element is ShapeElement => element.id === editing && element.type === 'shape'
     )
+    const editingCell = editing ? parseCellId(editing) : null
+    const editingTable = editingCell
+        ? elements.find((element): element is TableElement => element.id === editingCell.id && element.type === 'table')
+        : undefined
+    const cell = editingTable
+        ? tableCells(editingTable).find(entry => entry.row === editingCell!.row && entry.column === editingCell!.column)
+        : undefined
+    const turn = (element: SlideElement) => (element.type === 'line' ? 0 : (element.rotation ?? 0))
+    const turned = (element: SlideElement): React.CSSProperties | undefined =>
+        turn(element) ? { transform: `rotate(${turn(element)}deg)` } : undefined
 
     return (
         <div
             ref={root}
-            className="tp-canvas"
+            className={cx('tp-canvas', painting && 'is-painting')}
             style={{ width, height }}
             tabIndex={-1}
             onPointerDown={onBackgroundDown}
@@ -269,10 +326,22 @@ export function SlideCanvas({
             onPointerCancel={onPointerUp}
             onDoubleClick={event => {
                 // Hit-tested here: the pointer was captured by the canvas, so the click lands on it, not the shape.
-                const [x, y] = toSheet(event)
-                const hit = [...elements]
-                    .reverse()
-                    .find(element => x >= element.x && x <= element.x + element.w && y >= element.y && y <= element.y + element.h)
+                const point = toSheet(event)
+                // Each element is tested in its own upright frame, so a turned one is hit where it is drawn.
+                const local = (element: SlideElement) =>
+                    rotatePoint(point, [element.x + element.w / 2, element.y + element.h / 2], -turn(element))
+                const hit = [...elements].reverse().find(element => {
+                    const [x, y] = local(element)
+                    return x >= element.x && x <= element.x + element.w && y >= element.y && y <= element.y + element.h
+                })
+                if (hit?.type === 'table') {
+                    const [x, y] = local(hit)
+                    const target = tableCells(hit).find(entry => x >= entry.x && x <= entry.x + entry.w && y >= entry.y && y <= entry.y + entry.h)
+                    if (!target) return
+                    onSelect([hit.id])
+                    onEditing(`${hit.id}#${target.row},${target.column}`)
+                    return
+                }
                 if (hit?.type !== 'shape') return
                 onSelect([hit.id])
                 onEditing(hit.id)
@@ -308,11 +377,28 @@ export function SlideCanvas({
                                 top: element.y * scale,
                                 width: element.w * scale,
                                 height: element.h * scale,
+                                ...turned(element),
                             }}
                             onPointerDown={event => onElementDown(event, element)}
                         />
                     )
                 )}
+
+                {sequence.map((id, step) => {
+                    const element = elements.find(each => each.id === id)
+                    if (!element) return null
+                    const corner = element.type === 'line' ? { x: element.x, y: element.y } : rotatedBounds(element)
+                    return (
+                        <span
+                            key={`build:${id}`}
+                            className="tp-canvas__step"
+                            style={{ left: corner.x * scale, top: corner.y * scale }}
+                            title={`Animation step ${step + 1}`}
+                        >
+                            {step + 1}
+                        </span>
+                    )
+                })}
 
                 {selected.map(element =>
                     element.type === 'line' ? (
@@ -325,23 +411,34 @@ export function SlideCanvas({
                     ) : (
                         <div
                             key={element.id}
-                            className={cx('tp-canvas__selection', editing === element.id && 'is-editing')}
+                            className={cx(
+                                'tp-canvas__selection',
+                                (editing === element.id || editingTable?.id === element.id) && 'is-editing'
+                            )}
                             style={{
                                 left: element.x * scale,
                                 top: element.y * scale,
                                 width: element.w * scale,
                                 height: element.h * scale,
+                                ...turned(element),
                             }}
                         >
-                            {selected.length === 1 &&
-                                editing !== element.id &&
-                                HANDLES.map(handle => (
+                            {selected.length === 1 && editing !== element.id && editingTable?.id !== element.id && (
+                                <>
+                                    {HANDLES.map(handle => (
+                                        <span
+                                            key={handle}
+                                            className={`tp-canvas__handle tp-canvas__handle--${handle}`}
+                                            onPointerDown={event => onHandleDown(event, element, handle)}
+                                        />
+                                    ))}
                                     <span
-                                        key={handle}
-                                        className={`tp-canvas__handle tp-canvas__handle--${handle}`}
-                                        onPointerDown={event => onHandleDown(event, element, handle)}
+                                        className="tp-canvas__handle tp-canvas__handle--rotate"
+                                        title="Drag to rotate (Shift: 15° steps)"
+                                        onPointerDown={event => onRotateDown(event, element)}
                                     />
-                                ))}
+                                </>
+                            )}
                         </div>
                     )
                 )}
@@ -372,6 +469,8 @@ export function SlideCanvas({
                         element={editingShape}
                         family={editingShape.family ?? template.page.family}
                         scale={scale}
+                        rotation={turn(editingShape)}
+                        center={[editingShape.x + editingShape.w / 2, editingShape.y + editingShape.h / 2]}
                         onChange={text =>
                             onChange(
                                 live => ({
@@ -386,12 +485,66 @@ export function SlideCanvas({
                         onDone={() => onEditing(null)}
                     />
                 )}
+
+                {editingTable && cell && (
+                    <TextEditor
+                        key={editing!}
+                        element={cellShape(editingTable, cell)}
+                        family={editingTable.family ?? template.page.family}
+                        scale={scale}
+                        rotation={turn(editingTable)}
+                        center={[editingTable.x + editingTable.w / 2, editingTable.y + editingTable.h / 2]}
+                        onChange={text =>
+                            onChange(
+                                live => ({
+                                    ...live,
+                                    elements: live.elements.map(element =>
+                                        element.id === editingTable.id && element.type === 'table'
+                                            ? { ...element, ...setCell(element, cell.row, cell.column, text) }
+                                            : element
+                                    ),
+                                }),
+                                `text:${editing}`
+                            )
+                        }
+                        onDone={() => onEditing(null)}
+                        onTab={back => {
+                            // Tab moves through the cells, as it does in a PowerPoint table.
+                            const count = editingTable.rows[0]?.length ?? 1
+                            const at = cell.row * count + cell.column + (back ? -1 : 1)
+                            const total = editingTable.rows.length * count
+                            if (at < 0 || at >= total) return onEditing(null)
+                            onEditing(`${editingTable.id}#${Math.floor(at / count)},${at % count}`)
+                        }}
+                    />
+                )}
             </div>
         </div>
     )
 }
 
 /* ------------------------------------------------------------------ helpers */
+
+/** The point of a box a handle drags against: the opposite corner or edge, which stays put. */
+const anchorOf = (box: Box, handle: Handle): [number, number] => [
+    handle.includes('w') ? box.x + box.w : handle.includes('e') ? box.x : box.x + box.w / 2,
+    handle.includes('n') ? box.y + box.h : handle.includes('s') ? box.y : box.y + box.h / 2,
+]
+
+/**
+ * Resizing a turned box: the pointer is turned back into the box's own frame,
+ * the box resized there as if it were upright, and then moved so the anchor
+ * — the corner opposite the handle — stays where it was on the slide.
+ */
+function resizedTurned(box: Box, handle: Handle, point: [number, number], keepAspect: boolean, rotation: number): Box {
+    if (!rotation) return resized(box, handle, point, keepAspect)
+    const center: [number, number] = [box.x + box.w / 2, box.y + box.h / 2]
+    const next = resized(box, handle, rotatePoint(point, center, -rotation), keepAspect)
+    const anchor = anchorOf(box, handle)
+    const before = rotatePoint(anchor, center, rotation)
+    const after = rotatePoint(anchorOf(next, handle), [next.x + next.w / 2, next.y + next.h / 2], rotation)
+    return { ...next, x: Math.round(next.x + before[0] - after[0]), y: Math.round(next.y + before[1] - after[1]) }
+}
 
 function resized(box: Box, handle: Handle, point: [number, number], keepAspect: boolean): Box {
     let left = box.x
@@ -511,14 +664,21 @@ function TextEditor({
     element,
     family,
     scale,
+    rotation = 0,
+    center,
     onChange,
     onDone,
+    onTab,
 }: {
     element: ShapeElement
     family: keyof typeof FONT_STACKS
     scale: number
+    /** The turn of the element the text is in, about its centre — a table cell turns with its table. */
+    rotation?: number
+    center?: [number, number]
     onChange: (text: string) => void
     onDone: () => void
+    onTab?: (back: boolean) => void
 }) {
     const area = useRef<HTMLTextAreaElement>(null)
     const frame = textFrame(element)
@@ -563,9 +723,28 @@ function TextEditor({
                 if (event.key === 'Escape') {
                     event.preventDefault()
                     onDone()
+                } else if (event.key === 'Tab' && onTab) {
+                    event.preventDefault()
+                    onTab(event.shiftKey)
+                } else if (element.code && event.key === 'Tab') {
+                    // In code, Tab indents rather than leaving the box.
+                    event.preventDefault()
+                    const input = event.currentTarget
+                    const start = input.selectionStart
+                    const value = input.value
+                    onChange(value.slice(0, start) + '    ' + value.slice(input.selectionEnd))
+                    requestAnimationFrame(() => input.setSelectionRange(start + 4, start + 4))
                 }
             }}
             style={{
+                ...(rotation && center
+                    ? {
+                          transform: `rotate(${rotation}deg)`,
+                          transformOrigin: `${center[0] * scale - frame.x * scale}px ${center[1] * scale - (frame.y * scale + top)}px`,
+                      }
+                    : {}),
+                whiteSpace: 'pre-wrap',
+                wordBreak: element.code ? 'break-all' : undefined,
                 left: frame.x * scale,
                 top: frame.y * scale + top,
                 width: frame.w * scale,

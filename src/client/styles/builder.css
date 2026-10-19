@@ -441,3 +441,59 @@
 .tp-saved__name {
   font-weight: 700;
 }
+
+/* ------------------------------------------------------------ speaker notes */
+
+.tp-builder__notes {
+  padding: var(--tp-space-2) var(--tp-space-4);
+  border-top: 1px solid var(--tp-border);
+  background: var(--tp-surface);
+}
+
+.tp-builder__notes .tp-textarea {
+  width: 100%;
+  min-height: 3.5rem;
+  resize: vertical;
+}
+
+.tp-inspector__cells {
+  display: grid;
+  gap: 2px;
+}
+
+.tp-inspector__cells .tp-input {
+  min-height: 1.75rem;
+  padding: 0 var(--tp-space-1);
+  font-size: var(--tp-text-xs);
+}
+
+.tp-inspector__cells .tp-input.is-header {
+  font-weight: 700;
+}
+
+.tp-inspector__builds {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tp-space-1);
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+.tp-inspector__builds li {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--tp-space-2);
+}
+
+.tp-link-button {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--tp-primary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.tp-link-button:hover {
+  text-decoration: underline;
+}
