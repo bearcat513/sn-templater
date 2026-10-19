@@ -1,4 +1,5 @@
 import React from 'react'
+import type { ChartStyle, LoadedChart } from '../engine/chart'
 import {
     DEFAULT_LINE_HEIGHT,
     TEXT_INSET_X,
@@ -8,6 +9,7 @@ import {
     bulletIndent,
     cellFill,
     cellShape,
+    chartElementScene,
     cornerRadius,
     lineEnds,
     shapePoints,
@@ -25,6 +27,7 @@ import {
     type SlideElement,
     type TableElement,
 } from '../engine/presentation'
+import { ChartSvg } from './Chart'
 
 /**
  * A custom slide's elements, drawn in HTML on the sheet.
@@ -42,6 +45,9 @@ export const FONT_STACKS: Record<FontFamily, string> = {
 
 type Props = {
     slide: CustomSlide
+    /** Chart templates placed on the slide, counted, by sys_id. */
+    charts: Record<string, LoadedChart>
+    chartStyle: ChartStyle
     family: FontFamily
     fill: (text: string) => string
     /** In the builder: empty text shows its placeholder, and one element's text can be left out while it is edited. */
@@ -52,7 +58,7 @@ type Props = {
     linkBase?: string
 }
 
-export function FreeformContent({ slide, family, fill, editing, builds, linkBase }: Props) {
+export function FreeformContent({ slide, charts, chartStyle, family, fill, editing, builds, linkBase }: Props) {
     const sequence = builds ? buildSequence(slide) : []
     return (
         <>
@@ -63,6 +69,8 @@ export function FreeformContent({ slide, family, fill, editing, builds, linkBase
                     <FreeformElement
                         key={element.id}
                         element={element}
+                        charts={charts}
+                        chartStyle={chartStyle}
                         family={family}
                         fill={fill}
                         placeholder={editing?.placeholders ?? false}
@@ -78,6 +86,8 @@ export function FreeformContent({ slide, family, fill, editing, builds, linkBase
 
 function FreeformElement({
     element,
+    charts,
+    chartStyle,
     family,
     fill,
     placeholder,
@@ -86,6 +96,8 @@ function FreeformElement({
     link,
 }: {
     element: SlideElement
+    charts: Record<string, LoadedChart>
+    chartStyle: ChartStyle
     family: FontFamily
     fill: (text: string) => string
     placeholder: boolean
@@ -152,6 +164,15 @@ function FreeformElement({
                     {anchor}
                 </div>
             )
+        case 'chart': {
+            const name = charts[element.template]?.name || element.name || 'Chart'
+            return (
+                <div style={style} className={className}>
+                    <ChartSvg scene={chartElementScene(element, charts, chartStyle, fill)} family={family} label={name} />
+                    {anchor}
+                </div>
+            )
+        }
     }
 }
 

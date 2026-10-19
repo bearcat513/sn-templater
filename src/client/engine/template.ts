@@ -31,13 +31,20 @@
 import { DEFAULT_MARGINS, type Margins, type PageSize } from "./pdf";
 import type { FontFamily } from "./pdfFonts";
 
-export type TemplateKind = "document" | "deck";
+/**
+ * A chart is the third kind, and not like the other two: it draws no record.
+ * It counts the records of its table that its filter matches, and is placed
+ * by reference — in a document or deck as a block, on a custom slide as an
+ * element — so changing it once changes it everywhere it is shown.
+ */
+export type TemplateKind = "document" | "deck" | "chart";
 
-export const TEMPLATE_KINDS: TemplateKind[] = ["document", "deck"];
+export const TEMPLATE_KINDS: TemplateKind[] = ["document", "deck", "chart"];
 
 export const TEMPLATE_KIND_LABELS: Record<TemplateKind, string> = {
   document: "PDF document",
   deck: "Slide deck",
+  chart: "Chart",
 };
 
 /* -------------------------------- the page ------------------------------- */
@@ -239,15 +246,55 @@ export const calloutColors = (tone: CalloutTone | undefined, color?: string): { 
 
 export type ListStyle = "bullet" | "number" | "check";
 
-export type ChartKind = "column" | "bar" | "line" | "pie" | "donut";
+export type ChartKind =
+  | "column"
+  | "bar"
+  | "line"
+  | "area"
+  | "pie"
+  | "donut"
+  | "funnel"
+  | "stacked"
+  | "heatmap"
+  | "sankey"
+  | "gantt";
 
-export const CHART_KINDS: { kind: ChartKind; label: string }[] = [
-  { kind: "column", label: "Column" },
-  { kind: "bar", label: "Bar" },
-  { kind: "line", label: "Line" },
-  { kind: "pie", label: "Pie" },
-  { kind: "donut", label: "Donut" },
+/**
+ * What a chart's figures are: one figure for each label; a figure for each
+ * pair of labels — from and to, row and column, category and series; or a
+ * span of time for each label.
+ */
+export type ChartShape = "single" | "pairs" | "spans";
+
+export const CHART_KINDS: {
+  kind: ChartKind;
+  label: string;
+  shape: ChartShape;
+  /** What a pair's two labels are called, for a chart of pairs. */
+  axes?: [string, string];
+}[] = [
+  { kind: "column", label: "Column", shape: "single" },
+  { kind: "bar", label: "Bar", shape: "single" },
+  { kind: "line", label: "Line", shape: "single" },
+  { kind: "area", label: "Area", shape: "single" },
+  { kind: "pie", label: "Pie", shape: "single" },
+  { kind: "donut", label: "Donut", shape: "single" },
+  { kind: "funnel", label: "Funnel", shape: "single" },
+  { kind: "stacked", label: "Stacked column", shape: "pairs", axes: ["Column", "Stack"] },
+  { kind: "heatmap", label: "Heatmap", shape: "pairs", axes: ["Row", "Column"] },
+  { kind: "sankey", label: "Sankey", shape: "pairs", axes: ["From", "To"] },
+  { kind: "gantt", label: "Gantt", shape: "spans" },
 ];
+
+export const chartShape = (kind: ChartKind): ChartShape => CHART_KINDS.find(entry => entry.kind === kind)?.shape ?? "single";
+
+/** What a chart of pairs calls its two labels. */
+export const chartAxes = (kind: ChartKind): [string, string] =>
+  CHART_KINDS.find(entry => entry.kind === kind)?.axes ?? ["Label", "Then by"];
+
+/** The kinds that take their colours from the categorical palette rather than one series colour. */
+export const paletteChart = (kind: ChartKind): boolean =>
+  kind === "pie" || kind === "donut" || kind === "stacked" || kind === "sankey";
 
 /**
  * A chart of figures, laid out by ./chart.ts and drawn the same on paper and
@@ -256,17 +303,28 @@ export const CHART_KINDS: { kind: ChartKind; label: string }[] = [
  * Its figures are either written into the block — a label and a value each,
  * tokens and all, so `{{record.reassignment_count}}` can be a bar — or
  * counted from the records that reference this one, grouped by one of their
- * fields: an incident's tasks by state, a change's approvals by approver.
+ * fields: an incident's tasks by state, a change's approvals by approver —
+ * or they are a chart template's, placed here by reference.
  */
 export type ChartBlock = {
   type: "chart";
   chart: ChartKind;
   /** Drawn above the chart. Tokens work, plus `{{list.count}}` when it counts related records. */
   title?: string;
-  /** Written figures. A value that does not fill to a number is left out. */
-  items: { label: string; value: string }[];
+  /**
+   * Written figures. A value that does not fill to a number is left out. A
+   * chart of pairs reads `to` as the second label; a Gantt chart reads
+   * `start` and `end` as dates instead of a value.
+   */
+  items: ChartItem[];
   /** When set, the figures are counted from related records instead of `items`. */
   related?: ChartSource;
+  /**
+   * A chart template's sys_id. When set, the chart is that template's —
+   * its records, its grouping and its look — drawn at this block's height,
+   * under this block's title if it has one and the template's if not.
+   */
+  template?: string;
   /** The plot's height in points, title and legend aside. */
   height: number;
   /** The one series' colour. A pie or donut takes the categorical palette instead. */
@@ -277,13 +335,133 @@ export type ChartBlock = {
   emptyText?: string;
 };
 
-/** Records that reference this one, counted by the display value of one of their fields. */
+/** One written figure, tokens and all. */
+export type ChartItem = { label: string; value: string; to?: string; start?: string; end?: string };
+
+/**
+ * Records that reference this one, counted by the display value of one of
+ * their fields — and of a second, for a chart of pairs — or, for a Gantt
+ * chart, one bar each, named by `groupBy` and spanning `start` to `end`.
+ */
 export type ChartSource = {
   table: string;
   field: string;
   query?: string;
   groupBy: string;
+  /** The second label of a pair. */
+  thenBy?: string;
+  /** A Gantt bar's date fields. */
+  start?: string;
+  end?: string;
 };
+
+/* ---------------------------- chart templates ---------------------------- */
+
+/** What a chart template measures in each group: how many records, or a sum or average of a number field. */
+export type ChartMeasure = "count" | "sum" | "avg" | "min" | "max";
+
+export const CHART_MEASURES: { measure: ChartMeasure; label: string }[] = [
+  { measure: "count", label: "Number of records" },
+  { measure: "sum", label: "Total" },
+  { measure: "avg", label: "Average" },
+  { measure: "min", label: "Lowest" },
+  { measure: "max", label: "Highest" },
+];
+
+/**
+ * The body of a chart template.
+ *
+ * The records are the template's own table and filter — the record's
+ * `table` and `query` columns, as a deck's are — grouped by one field and
+ * measured in each group. The rest is the look, as a chart block has it.
+ */
+export type ChartTemplate = {
+  version: 1;
+  chart: ChartKind;
+  /** Drawn above the chart. Tokens work: the deck's, and `{{list.count}}` for the records counted. */
+  title?: string;
+  /** A field on the table: one bar, point or slice per value of it — or, for a Gantt chart, what each record's bar is called. */
+  groupBy: string;
+  /** The second label of a pair, for a chart of pairs. */
+  thenBy?: string;
+  /** A Gantt bar's date fields: each record is one bar from `start` to `end`. */
+  start?: string;
+  end?: string;
+  measure: ChartMeasure;
+  /** The number field summed, averaged or compared; unused when counting. */
+  field?: string;
+  /** Largest first, or in the field's own order — a priority's, a state's — which suits a line. */
+  order: "value" | "field";
+  /** The plot's height in a document; on a slide the element's box decides. */
+  height: number;
+  color?: string;
+  showValues?: boolean;
+  emptyText?: string;
+};
+
+/** The field types a Gantt bar can start or end at. */
+export const DATE_TYPES = new Set(["glide_date", "glide_date_time", "due_date", "date", "datetime", "calendar_date_time"]);
+
+/** What a Gantt bar is named by, and where it starts and ends, in order of preference. */
+const SPAN_NAMES = ["short_description", "name", "number"];
+const SPAN_STARTS = ["planned_start_date", "start_date", "work_start", "expected_start", "opened_at", "sys_created_on"];
+const SPAN_ENDS = ["planned_end_date", "end_date", "work_end", "due_date", "closed_at", "sys_updated_on"];
+
+type ChartFieldChoice = { groupBy: string; thenBy?: string; start?: string; end?: string };
+
+/**
+ * The fields a chart starts with when it becomes a chart of another kind: the
+ * ones it has where they suit the new kind, and otherwise the likeliest the
+ * table has — a pair's second grouping, or a Gantt bar's name and dates.
+ */
+export function chartFieldsFor(
+  kind: ChartKind,
+  from: ChartKind,
+  current: ChartFieldChoice,
+  fields: { name: string; type?: string }[],
+  displayField = "",
+): ChartFieldChoice {
+  const has = (name?: string) => Boolean(name && fields.some(field => field.name === name));
+  const first = (names: string[]) => names.find(has);
+  const shape = chartShape(kind);
+  const was = chartShape(from);
+  if (shape === "spans") {
+    const dates = fields.filter(field => DATE_TYPES.has(field.type ?? "")).map(field => field.name);
+    const start = has(current.start) ? current.start : (first(SPAN_STARTS) ?? dates[0]);
+    const end = has(current.end) ? current.end : (first(SPAN_ENDS) ?? dates.find(name => name !== start));
+    const groupBy = was === "spans" && has(current.groupBy) ? current.groupBy : (first([displayField, ...SPAN_NAMES]) ?? current.groupBy);
+    return { groupBy, ...(start ? { start } : {}), ...(end ? { end } : {}) };
+  }
+  // A Gantt bar's name is no grouping: back to one that is.
+  const groupBy = was === "spans" ? (first(STARTER_GROUPS) ?? current.groupBy) : current.groupBy;
+  if (shape === "single") return { groupBy };
+  const thenBy = has(current.thenBy) && current.thenBy !== groupBy ? current.thenBy : first(STARTER_GROUPS.filter(name => name !== groupBy));
+  return { groupBy, ...(thenBy ? { thenBy } : {}) };
+}
+
+/** The fields a new chart groups by, in order of preference: the ones every task table has. */
+const STARTER_GROUPS = ["state", "priority", "category", "assignment_group", "active"];
+
+/**
+ * A new chart template: a column per state, or per whatever the table has
+ * that reads like one. The title names the table in words rather than as
+ * `{{table.label}}`, which on a deck's slide is the deck's table, not this one.
+ */
+export function starterChart(fields: StarterField[] = [], tableLabel = "Records"): ChartTemplate {
+  const groupBy = STARTER_GROUPS.find(name => fields.some(field => field.name === name)) ?? fields[0]?.name ?? "";
+  const label = fields.find(field => field.name === groupBy)?.label ?? groupBy;
+  return {
+    version: 1,
+    chart: "column",
+    title: label ? `${tableLabel} by ${label.toLowerCase()} ({{list.count}})` : "",
+    groupBy,
+    measure: "count",
+    order: "value",
+    height: 200,
+    showValues: true,
+    emptyText: "Nothing to chart.",
+  };
+}
 
 export type PdfBlock =
   | { type: "heading"; text: string; size?: number; align?: BlockAlign; color?: string; spaceAfter?: number }
@@ -692,7 +870,7 @@ export function blockStrings(block: PdfBlock): string[] {
       return [
         block.title ?? "",
         block.emptyText ?? "",
-        ...(block.related ? [] : block.items.flatMap(item => [item.label, item.value])),
+        ...(block.related || block.template ? [] : block.items.flatMap(item => [item.label, item.value, item.to ?? "", item.start ?? "", item.end ?? ""])),
       ];
     case "link":
       return [block.text, block.url];
@@ -734,8 +912,11 @@ export const chartRelatedList = (source: ChartSource): RelatedListBlock => ({
   table: source.table,
   field: source.field,
   ...(source.query ? { query: source.query } : {}),
+  ...(source.start ? { orderBy: source.start } : {}),
   limit: MAX_RELATED_ROWS,
-  columns: [{ field: source.groupBy, header: source.groupBy, width: 1 }],
+  columns: [...new Set([source.groupBy, source.thenBy, source.start, source.end])]
+    .filter((field): field is string => Boolean(field))
+    .map(field => ({ field, header: field, width: 1 })),
 });
 
 /** Every related-list block — and every chart counting related records — cover and body alike. */
@@ -745,3 +926,12 @@ export const relatedBlocks = (template: PdfTemplate): RelatedListBlock[] =>
     .filter(
       (block): block is RelatedListBlock => block.type === "relatedList" && Boolean(block.table && block.field),
     );
+
+/** The chart templates a template places, cover and body alike, each once. */
+export const chartTemplateIds = (template: PdfTemplate): string[] => [
+  ...new Set(
+    [...template.blocks, ...(template.cover ?? [])].flatMap(block =>
+      block.type === "chart" && block.template ? [block.template] : [],
+    ),
+  ),
+];

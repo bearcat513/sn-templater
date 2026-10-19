@@ -20,6 +20,11 @@
  *           slide.text('Questions?', { x: 0, y: 220, w: slide.width, h: 100, size: 48, align: 'center' });
  *       });
  *   var sysId = deck.save('Weekly P1 review');
+ *
+ *   // A chart template, counted when the presentation opens, on a slide of its own
+ *   deck.addSlide('titleOnly', function (slide) {
+ *       slide.chart('Open P1s by assignment group', { y: slide.top + 90, h: slide.innerHeight - 90 });
+ *   }, { name: 'Where they sit' });
  *   gs.info(deck.presentUrl({ absolute: true }));
  *
  * PDFs are still drawn in the browser. A link from here opens Templater,
@@ -102,7 +107,7 @@ Templater.prototype = {
      *
      * @param {object} [filter]
      * @param {string} [filter.table] Templates that fit this table: made for it or for a table it extends.
-     * @param {string} [filter.kind] 'document' or 'deck'.
+     * @param {string} [filter.kind] 'document', 'deck' or 'chart'.
      * @param {boolean} [filter.activeOnly] Defaults to true.
      */
     findTemplates: function (filter) {
@@ -129,7 +134,7 @@ Templater.prototype = {
      * @param {object} spec
      * @param {string} spec.name
      * @param {string} spec.table
-     * @param {string} [spec.kind] 'document' (the default) or 'deck'.
+     * @param {string} [spec.kind] 'document' (the default), 'deck' or 'chart'.
      * @param {object|string} [spec.body] The template JSON. If you leave it out, the
      *     designer starts the template off from the table's fields the first time it is opened.
      * @param {string} [spec.description]
@@ -219,7 +224,7 @@ Templater.prototype = {
     deck: function (template) {
         var source = this._requireTemplate(template, 'Templater.deck');
         if (String(source.getValue('kind')) !== 'deck') {
-            throw new Error('Templater.deck: "' + source.getValue('name') + '" is a PDF document template, not a deck.');
+            throw new Error('Templater.deck: "' + source.getValue('name') + '" is a ' + String(source.getValue('kind') || 'document') + ' template, not a deck.');
         }
         return new Templater.Deck(this, source, null);
     },
@@ -333,8 +338,8 @@ Templater.prototype = {
     _writeTemplate: function (record, spec) {
         if (spec.name !== undefined) record.setValue('name', String(spec.name));
         if (spec.kind !== undefined) {
-            if (spec.kind !== 'document' && spec.kind !== 'deck') {
-                throw new Error('Templater: a template\'s kind is "document" or "deck", not "' + spec.kind + '".');
+            if (spec.kind !== 'document' && spec.kind !== 'deck' && spec.kind !== 'chart') {
+                throw new Error('Templater: a template\'s kind is "document", "deck" or "chart", not "' + spec.kind + '".');
             }
             record.setValue('kind', spec.kind);
         }
@@ -709,6 +714,7 @@ Templater.Deck.prototype = {
  */
 Templater.Slide = function (deck, layout) {
     var page = deck.page;
+    this._templater = deck._templater;
     this.page = page;
     this.width = deck.width;
     this.height = deck.height;
@@ -832,6 +838,26 @@ Templater.Slide.prototype = {
             element.stroke = this._color(style.stroke);
             element.strokeWidth = this._number(style.strokeWidth, 1);
         }
+        return this._add(element);
+    },
+
+    /**
+     * A chart template (sys_id, name or GlideRecord), drawn to fill its box: its
+     * own records, grouping and look, counted each time the presentation opens.
+     * style: { x, y, w, h, hideTitle, opacity, rotation, link, build }
+     * The box defaults to the area inside the margins.
+     */
+    chart: function (template, style) {
+        var record = this._templater._requireTemplate(template, 'Templater: slide.chart');
+        if (String(record.getValue('kind')) !== 'chart') {
+            throw new Error('Templater: slide.chart: "' + record.getValue('name') + '" is not a chart template.');
+        }
+        style = style || {};
+        var element = this._box({ x: this.left, y: this.top, w: this.innerWidth, h: this.innerHeight }, style, 1);
+        element.type = 'chart';
+        element.template = record.getUniqueValue();
+        element.name = String(record.getValue('name') || '').slice(0, 100);
+        if (style.hideTitle) element.hideTitle = true;
         return this._add(element);
     },
 

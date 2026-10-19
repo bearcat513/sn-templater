@@ -5,6 +5,7 @@ import {
     isCustomKey,
     newId,
     orderOf,
+    type ChartElement,
     type CustomSlide,
     type ImageElement,
     type LineElement,
@@ -341,12 +342,14 @@ const SHAPE_STYLE = ['fill', 'stroke', 'strokeWidth', 'size', 'color', 'bold', '
 const LINE_STYLE = ['stroke', 'strokeWidth', 'dashed', 'arrowStart', 'arrowEnd', 'opacity'] as const
 const IMAGE_STYLE = ['stroke', 'strokeWidth', 'opacity'] as const
 const TABLE_STYLE = ['size', 'color', 'family', 'align', 'header', 'headerFill', 'headerColor', 'banded', 'fill', 'border', 'opacity'] as const
+const CHART_STYLE = ['hideTitle', 'opacity'] as const
 
 const STYLE_KEYS: Record<SlideElement['type'], readonly string[]> = {
     shape: SHAPE_STYLE,
     line: LINE_STYLE,
     image: IMAGE_STYLE,
     table: TABLE_STYLE,
+    chart: CHART_STYLE,
 }
 
 export function styleOf(element: SlideElement): CopiedStyle {
@@ -383,6 +386,14 @@ export function moveBuild(slide: CustomSlide, sequence: string[], id: string, by
     order.set(id, at + by + 1)
     order.set(other, at + 1)
     return patchElements(slide, sequence, element => ({ build: { ...element.build!, order: order.get(element.id)! } }))
+}
+
+/** A chart template, placed in the middle of the slide over most of its content area. */
+export function newChart(sheet: Sheet, template: { sysId: string; name: string }): ChartElement {
+    const { margins } = sheet.page
+    const w = Math.round((sheet.width - margins.left - margins.right) * 0.7)
+    const h = Math.round((sheet.height - margins.top - margins.bottom) * 0.7)
+    return { type: 'chart', id: newId(), ...centred(sheet, w, h), template: template.sysId, name: template.name }
 }
 
 /** A picture at its own proportions, as large as fits in the middle half of the slide. */

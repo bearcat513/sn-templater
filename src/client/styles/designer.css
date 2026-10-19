@@ -559,3 +559,49 @@
   flex-direction: column;
   gap: var(--tp-space-1);
 }
+
+/* ---------------------------------------------------- chart designer */
+
+.tp-chart-designer {
+  --tp-designer-top: calc(var(--tp-header-height) + 3.25rem);
+  display: grid;
+  grid-template-columns: minmax(22rem, 30rem) minmax(24rem, 1fr);
+  flex: 1;
+  min-height: 0;
+}
+
+.tp-chart-designer__editor {
+  padding: var(--tp-space-4);
+  min-width: 0;
+}
+
+.tp-chart-designer__preview {
+  position: sticky;
+  top: var(--tp-designer-top);
+  align-self: start;
+  height: calc(100vh - var(--tp-designer-top) - var(--tp-devtools-inset));
+  border-left: 1px solid var(--tp-border);
+}
+
+@media (max-width: 900px) {
+  .tp-chart-designer {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .tp-chart-designer__preview {
+    position: static;
+    height: 70vh;
+    border-left: none;
+    border-top: 1px solid var(--tp-border);
+  }
+}
+
+/* Three to a row: a pair's two labels and its figure, or a span's name and two dates. */
+.tp-pairs__row--three {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) auto;
+}
+
+.tp-pairs__head {
+  font-size: var(--tp-text-xs);
+  color: var(--tp-text-subtle);
+}

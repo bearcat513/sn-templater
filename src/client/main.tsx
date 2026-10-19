@@ -1,3 +1,5 @@
+// First, so the page's scripts are put right before anything relies on them.
+import './platform'
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './app'

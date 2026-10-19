@@ -6,7 +6,7 @@ import { FONT_STACKS } from './Freeform'
 /**
  * A laid-out chart, drawn as SVG on the sheet.
  *
- * The other half of `drawChart` in engine/render.ts: the same marks at the
+ * The other half of `drawChart` in engine/chart.ts: the same marks at the
  * same points, so the bars on screen are the bars in the PDF. Text is placed
  * by its baseline, 0.8em below the top of its line, as the PDF writer places
  * it. What the screen adds is a tooltip on each bar, slice and dot.

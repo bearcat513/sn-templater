@@ -9,9 +9,11 @@ import {
 } from '@servicenow/sdk/core'
 
 /**
- * One table for both kinds of template — a template is a template: the same
- * editor, the same letterhead, the same block language. `kind` only decides
- * the defaults and where it is offered.
+ * One table for every kind of template. Documents and decks are the same
+ * thing — the same editor, the same letterhead, the same block language —
+ * and `kind` only decides their defaults and where they are offered. A chart
+ * is its own body (a grouping and a look), counting the records of `table`
+ * that `query` matches, and is placed in the others by sys_id.
  *
  * The body is one large text column rather than a JSON column: it is the
  * canonical JSON the editor writes, and it carries its own pictures (a logo is
@@ -34,6 +36,7 @@ export const x_1040823_template_template = Table({
             choices: {
                 document: { label: 'PDF document', sequence: 10 },
                 deck: { label: 'Slide deck', sequence: 20 },
+                chart: { label: 'Chart', sequence: 30 },
             },
             dropdown: 'dropdown_without_none',
         }),

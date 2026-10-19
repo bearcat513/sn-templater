@@ -1,8 +1,8 @@
 import React, { useMemo, useState } from 'react'
 import { useSession } from '../data/session'
 import { galleryFor, GALLERY, type GalleryTemplate } from '../engine/gallery'
-import { TEMPLATE_KIND_LABELS, starterTemplate, type TemplateKind } from '../engine/template'
-import { serializeTemplate } from '../engine/validate'
+import { TEMPLATE_KIND_LABELS, starterChart, starterTemplate, type TemplateKind } from '../engine/template'
+import { serializeChartTemplate, serializeTemplate } from '../engine/validate'
 import { useAsync } from '../hooks/useAsync'
 import type { Navigate } from '../hooks/useRoute'
 import { SchemaService } from '../services/schema'
@@ -10,7 +10,7 @@ import { TemplateService, type TemplateRecord } from '../services/templates'
 import { Icon } from '../ui/icons'
 import { Badge, Button, EmptyState, Field, Input, Notice, Segmented, Spinner, Switch, Textarea, cx } from '../ui/controls'
 import { ConfirmModal, Menu, Modal, useToast } from '../ui/overlays'
-import { TablePicker } from './common'
+import { KIND_ICONS, TablePicker } from './common'
 
 type Filter = 'all' | TemplateKind
 
@@ -77,11 +77,15 @@ export function TemplatesView({ navigate }: { navigate: Navigate }) {
                 <div>
                     <h1>Templates</h1>
                     <p className="tp-muted">
-                        A template turns records into a PDF — fields, related lists and all — or into a slide per record.
+                        A template turns records into a PDF — fields, related lists and all — or into a slide per record. A
+                        chart counts a table's records, to place in either or on a slide of its own.
                     </p>
                 </div>
                 {session.canEdit && (
                     <div className="tp-row">
+                        <Button icon="chart" onClick={() => setCreating('chart')}>
+                            New chart
+                        </Button>
                         <Button icon="file" onClick={() => setCreating('document')}>
                             New PDF template
                         </Button>
@@ -110,6 +114,7 @@ export function TemplatesView({ navigate }: { navigate: Navigate }) {
                         { value: 'all', label: 'All' },
                         { value: 'document', label: 'PDF documents', icon: 'file' },
                         { value: 'deck', label: 'Slide decks', icon: 'slides' },
+                        { value: 'chart', label: 'Charts', icon: 'chart' },
                     ]}
                 />
                 <Switch checked={showInactive} onChange={setShowInactive} label="Show inactive" />
@@ -129,13 +134,13 @@ export function TemplatesView({ navigate }: { navigate: Navigate }) {
                                 type="button"
                                 className="tp-template-card__main"
                                 onClick={() =>
-                                    session.canEdit
+                                    session.canEdit || template.kind === 'chart'
                                         ? navigate('edit', { id: template.sysId })
                                         : navigate(template.kind === 'deck' ? 'present' : 'export', { template: template.sysId })
                                 }
                             >
                                 <span className={cx('tp-template-card__icon', `tp-kind--${template.kind}`)}>
-                                    <Icon name={template.kind === 'deck' ? 'slides' : 'file'} size={20} />
+                                    <Icon name={KIND_ICONS[template.kind]} size={20} />
                                 </span>
                                 <span className="tp-template-card__name">{template.name}</span>
                                 <span className="tp-template-card__table">
@@ -143,7 +148,7 @@ export function TemplatesView({ navigate }: { navigate: Navigate }) {
                                 </span>
                                 {template.description && <span className="tp-template-card__desc">{template.description}</span>}
                                 <span className="tp-template-card__meta">
-                                    <Badge tone={template.kind === 'deck' ? 'primary' : 'neutral'}>
+                                    <Badge tone={template.kind === 'deck' ? 'primary' : template.kind === 'chart' ? 'positive' : 'neutral'}>
                                         {TEMPLATE_KIND_LABELS[template.kind]}
                                     </Badge>
                                     {!template.active && <Badge tone="warning">Inactive</Badge>}
@@ -158,9 +163,15 @@ export function TemplatesView({ navigate }: { navigate: Navigate }) {
                                         Present
                                     </Button>
                                 ) : null}
-                                <Button size="sm" icon="download" onClick={() => navigate('export', { template: template.sysId })}>
-                                    Export
-                                </Button>
+                                {template.kind === 'chart' ? (
+                                    <Button size="sm" icon="eye" onClick={() => navigate('edit', { id: template.sysId })}>
+                                        Open
+                                    </Button>
+                                ) : (
+                                    <Button size="sm" icon="download" onClick={() => navigate('export', { template: template.sysId })}>
+                                        Export
+                                    </Button>
+                                )}
                                 {session.canEdit && (
                                     <Menu
                                         label={`More actions for ${template.name}`}
@@ -286,12 +297,15 @@ function NewTemplateModal({
         try {
             const schema = await SchemaService.table(table.name)
             const defaults = starting
-                ? { query: starting.query, orderBy: starting.orderBy, limit: starting.limit, body: starting.body }
+                ? { query: starting.query, orderBy: starting.orderBy, limit: starting.limit, body: serializeTemplate(starting.body) }
                 : {
-                      query: chosenKind === 'deck' && schema.fields.some(field => field.name === 'active') ? 'active=true' : '',
+                      query: chosenKind !== 'document' && schema.fields.some(field => field.name === 'active') ? 'active=true' : '',
                       orderBy: '-sys_updated_on',
                       limit: chosenKind === 'deck' ? 20 : 50,
-                      body: starterTemplate(chosenKind, schema.fields),
+                      body:
+                          chosenKind === 'chart'
+                              ? serializeChartTemplate(starterChart(schema.fields, schema.label))
+                              : serializeTemplate(starterTemplate(chosenKind, schema.fields)),
                   }
             const created = await TemplateService.create({
                 name: name.trim(),
@@ -302,7 +316,7 @@ function NewTemplateModal({
                 query: defaults.query,
                 orderBy: defaults.orderBy,
                 limit: defaults.limit,
-                body: serializeTemplate(defaults.body),
+                body: defaults.body,
             })
             onCreated(created)
         } catch (failure) {
@@ -336,7 +350,7 @@ function NewTemplateModal({
                 }}
             >
                 <div className="tp-kind-choice" role="radiogroup" aria-label="Kind">
-                    {(['document', 'deck'] as TemplateKind[]).map(option => (
+                    {(['document', 'deck', 'chart'] as TemplateKind[]).map(option => (
                         <button
                             key={option}
                             type="button"
@@ -346,52 +360,58 @@ function NewTemplateModal({
                             onClick={() => chooseKind(option)}
                         >
                             <span className={cx('tp-choice__icon', `tp-kind--${option}`)}>
-                                <Icon name={option === 'deck' ? 'slides' : 'file'} size={20} />
+                                <Icon name={KIND_ICONS[option]} size={20} />
                             </span>
                             <strong>{TEMPLATE_KIND_LABELS[option]}</strong>
                             <span className="tp-subtle">
                                 {option === 'deck'
                                     ? 'One slide per record, presented here or exported as a PDF.'
-                                    : 'A record with its related lists, as a PDF to download or attach.'}
+                                    : option === 'chart'
+                                      ? 'A table’s records counted by a field, to place in templates and on slides.'
+                                      : 'A record with its related lists, as a PDF to download or attach.'}
                             </span>
                         </button>
                     ))}
                 </div>
-                <Field label="Start from" hint="A ready-made template is copied, so the copy is yours to change.">
-                    <div className="tp-choices" role="radiogroup" aria-label="Start from">
-                        {[null, ...gallery].map(entry => {
-                            const selected = (entry?.key ?? '') === start
-                            return (
-                                <button
-                                    key={entry?.key ?? 'blank'}
-                                    type="button"
-                                    role="radio"
-                                    aria-checked={selected}
-                                    className={cx('tp-choice', selected && 'is-selected')}
-                                    onClick={() => chooseStart(entry)}
-                                >
-                                    <span className={cx('tp-choice__icon', `tp-kind--${chosenKind}`)}>
-                                        <Icon name={entry ? (chosenKind === 'deck' ? 'slides' : 'file') : 'plus'} />
-                                    </span>
-                                    <span className="tp-choice__text">
-                                        <span className="tp-choice__name">{entry ? entry.name : 'Blank'}</span>
-                                        <span className="tp-choice__meta">
-                                            {entry ? entry.table : 'Built from the table’s own fields'}
+                {chosenKind !== 'chart' && (
+                    <Field label="Start from" hint="A ready-made template is copied, so the copy is yours to change.">
+                        <div className="tp-choices" role="radiogroup" aria-label="Start from">
+                            {[null, ...gallery].map(entry => {
+                                const selected = (entry?.key ?? '') === start
+                                return (
+                                    <button
+                                        key={entry?.key ?? 'blank'}
+                                        type="button"
+                                        role="radio"
+                                        aria-checked={selected}
+                                        className={cx('tp-choice', selected && 'is-selected')}
+                                        onClick={() => chooseStart(entry)}
+                                    >
+                                        <span className={cx('tp-choice__icon', `tp-kind--${chosenKind}`)}>
+                                            <Icon name={entry ? KIND_ICONS[chosenKind] : 'plus'} />
                                         </span>
-                                    </span>
-                                    {selected && <Icon name="check" className="tp-choice__check" />}
-                                </button>
-                            )
-                        })}
-                    </div>
-                </Field>
+                                        <span className="tp-choice__text">
+                                            <span className="tp-choice__name">{entry ? entry.name : 'Blank'}</span>
+                                            <span className="tp-choice__meta">
+                                                {entry ? entry.table : 'Built from the table’s own fields'}
+                                            </span>
+                                        </span>
+                                        {selected && <Icon name="check" className="tp-choice__check" />}
+                                    </button>
+                                )
+                            })}
+                        </div>
+                    </Field>
+                )}
                 <Field label="Name" htmlFor="new-template-name">
                     <Input
                         id="new-template-name"
                         value={name}
                         maxLength={100}
                         onChange={event => setName(event.target.value)}
-                        placeholder={chosenKind === 'deck' ? 'Weekly major incident review' : 'Incident report'}
+                        placeholder={
+                            chosenKind === 'deck' ? 'Weekly major incident review' : chosenKind === 'chart' ? 'Open incidents by priority' : 'Incident report'
+                        }
                         autoFocus
                     />
                 </Field>

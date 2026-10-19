@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
+import { useCharts, withCharts } from '../data/charts'
 import { loadRecords, specimenJob } from '../data/loader'
 import { useSession } from '../data/session'
 import { unknownTokens, type RenderJob } from '../engine/render'
-import type { PdfTemplate, TemplateKind } from '../engine/template'
+import { chartTemplateIds, type PdfTemplate, type TemplateKind } from '../engine/template'
 import { documentFileName } from '../engine/tokens'
 import { dataSignature } from '../engine/vocabulary'
 import { useDebounced } from '../hooks/useDebounced'
@@ -77,10 +78,14 @@ export function Preview({ template, kind, schema, title, recordId, onRecordChang
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [key])
 
+    // Chart templates count their own tables, so the specimen shows them for real too.
+    const charts = useCharts(useMemo(() => chartTemplateIds(settled), [settled]))
     const job = useMemo<RenderJob>(() => {
-        if (recordId && loaded) return { ...loaded.job, title, coverValues: { ...loaded.job.coverValues, 'deck.title': title } }
-        return specimenJob(settled, schema, session, title)
-    }, [recordId, loaded, settled, schema, session, title])
+        if (recordId && loaded) {
+            return withCharts({ ...loaded.job, title, coverValues: { ...loaded.job.coverValues, 'deck.title': title } }, charts)
+        }
+        return withCharts(specimenJob(settled, schema, session, title), charts)
+    }, [recordId, loaded, settled, schema, session, title, charts])
 
     /* ----------------------------- the render ----------------------------- */
 

@@ -157,10 +157,17 @@ export function recordValues(record: Record<string, ApiField>, paths: string[]):
   return values;
 }
 
-/** A related list's row, with display values only — a table cell is read, not computed with. */
+/**
+ * A related list's row: display values, which a table cell prints, and each
+ * stored value under `raw.` as well — a Gantt chart reads its dates from
+ * those, which do not change with the reader's date format.
+ */
 export function rowValues(row: Record<string, ApiField>): Record<string, string> {
   const values: Record<string, string> = {};
-  for (const [key, field] of Object.entries(row)) values[key] = displayOf(field);
+  for (const [key, field] of Object.entries(row)) {
+    values[key] = displayOf(field);
+    values[`${RAW_PREFIX}${key}`] = rawOf(field);
+  }
   return values;
 }
 

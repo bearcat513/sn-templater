@@ -1,4 +1,5 @@
 import React from 'react'
+import { useChartTemplates } from '../data/charts'
 import { FONT_FAMILIES, type FontFamily } from '../engine/pdfFonts'
 import {
     BUILD_EFFECTS,
@@ -9,6 +10,7 @@ import {
     buildSequence,
     normalizeRotation,
     type BuildEffect,
+    type ChartElement,
     type ImageElement,
     type LineElement,
     type ShapeElement,
@@ -196,6 +198,7 @@ function describe(element: SlideElement): string {
         return line?.trim().slice(0, 40) || SHAPE_LABELS[element.shape]
     }
     if (element.type === 'table') return `Table, ${element.rows[0]?.length ?? 0} × ${element.rows.length}`
+    if (element.type === 'chart') return element.name ? `Chart: ${element.name.slice(0, 32)}` : 'Chart'
     return element.type === 'image' ? 'Picture' : element.arrowEnd || element.arrowStart ? 'Arrow' : 'Line'
 }
 
@@ -285,6 +288,7 @@ function ElementProperties({ editor, element }: { editor: SlideEditor; element: 
             {element.type === 'line' && <LineProperties editor={editor} element={element} />}
             {element.type === 'image' && <ImageProperties editor={editor} element={element} />}
             {element.type === 'table' && <TableProperties editor={editor} element={element} />}
+            {element.type === 'chart' && <ChartProperties editor={editor} element={element} />}
             <Position editor={editor} element={element} />
             <LinkSection editor={editor} element={element} />
             <AnimationSection editor={editor} element={element} />
@@ -629,6 +633,54 @@ function ImageProperties({ editor, element }: { editor: SlideEditor; element: Im
                 }}
             />
             <Outline editor={editor} stroke={element.stroke} strokeWidth={element.strokeWidth} />
+        </Section>
+    )
+}
+
+/**
+ * A chart element: which chart template it shows, and whether its title does.
+ * What the chart counts and how it looks belong to the template, so they are
+ * changed there — once, for every slide and deck that shows it.
+ */
+function ChartProperties({ editor, element }: { editor: SlideEditor; element: ChartElement }) {
+    const templates = useChartTemplates()
+    const options = (templates.data ?? []).filter(chart => chart.active || chart.sysId === element.template)
+    const known = options.some(chart => chart.sysId === element.template)
+    return (
+        <Section title="Chart">
+            <Field
+                label="Chart template"
+                hint="The chart counts its own table with its own filter whenever the presentation opens."
+            >
+                <Select<string>
+                    value={element.template}
+                    options={[
+                        ...(known ? [] : [{ value: element.template, label: element.name ?? 'This chart' }]),
+                        ...options.map(chart => ({ value: chart.sysId, label: `${chart.name} · ${chart.tableLabel || chart.table}` })),
+                    ]}
+                    onChange={sysId => {
+                        const chart = options.find(entry => entry.sysId === sysId)
+                        if (chart) editor.patch({ template: chart.sysId, name: chart.name })
+                    }}
+                    aria-label="Chart template"
+                />
+            </Field>
+            <Switch
+                checked={!element.hideTitle}
+                onChange={show => editor.patch({ hideTitle: show ? undefined : true })}
+                label="Show the chart’s title"
+            />
+            <div>
+                <a
+                    className="tp-btn tp-btn--ghost tp-btn--sm"
+                    href={`${window.location.pathname}?view=edit&id=${encodeURIComponent(element.template)}`}
+                    target="_blank"
+                    rel="noreferrer"
+                >
+                    <Icon name="external" size={14} />
+                    <span>Edit the chart template</span>
+                </a>
+            </div>
         </Section>
     )
 }

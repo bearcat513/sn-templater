@@ -10,6 +10,7 @@ import {
     duplicateSlide,
     insertSlide,
     moveSlide,
+    newChart,
     newCodeBox,
     newImage,
     newLine,
@@ -29,6 +30,7 @@ import { Ribbon } from '../builder/Ribbon'
 import { SlideCanvas } from '../builder/SlideCanvas'
 import { SlideSorter } from '../builder/SlideSorter'
 import { useHistory } from '../builder/useHistory'
+import { useCharts, withCharts } from '../data/charts'
 import { canChangePresentation, loadDeck, sourceOf, type DeckSource, type LoadedDeck } from '../data/deck'
 import { useSession } from '../data/session'
 import { describeError, log, useInspect } from '../debug/log'
@@ -46,6 +48,7 @@ import {
     customKey,
     layoutSlide,
     orderOf,
+    presentationChartIds,
     readPresentation,
     serializePresentation,
     withSlideOptions,
@@ -198,8 +201,11 @@ export function BuilderView({ params, navigate }: { params: URLSearchParams; nav
 
     /* ------------------------------- the slides ----------------------------- */
 
-    const generated = useMemo(() => (deck ? paginate(deck.template, deck.job) : []), [deck])
-    const slides = useMemo(() => (deck ? arrange(generated, deck.job, body) : []), [deck, generated, body])
+    // Charts placed on custom slides are counted as they are placed, and join the deck's own.
+    const charts = useCharts(useMemo(() => presentationChartIds(body), [body]))
+    const job = useMemo(() => (deck ? withCharts(deck.job, charts) : null), [deck, charts])
+    const generated = useMemo(() => (deck && job ? paginate(deck.template, job) : []), [deck, job])
+    const slides = useMemo(() => (job ? arrange(generated, job, body) : []), [job, generated, body])
     const visible = useMemo(() => shown(slides), [slides])
 
     useEffect(() => {
@@ -309,6 +315,7 @@ export function BuilderView({ params, navigate }: { params: URLSearchParams; nav
                   insertCode: () => place([newCodeBox(sheet)], true),
                   insertTable: (rows, columns) => place([newTable(sheet, rows, columns)]),
                   insertImage: file => (file ? void placeImage(file) : imageInput.current?.click()),
+                  insertChart: template => place([newChart(sheet, template)]),
                   painter,
                   togglePainter: () => {
                       if (painter) return setPainter(null)
@@ -446,7 +453,7 @@ export function BuilderView({ params, navigate }: { params: URLSearchParams; nav
         if (!deck || !meta) return
         try {
             const drawn = log.time('render', `Presentation PDF drawn for “${meta.name}”`)
-            const result = renderPdfSlides(deck.template, deck.job, visible)
+            const result = renderPdfSlides(deck.template, job ?? deck.job, visible)
             drawn({ pages: result.pageCount, bytes: result.bytes.length, problems: result.problems })
             downloadBytes(result.bytes, documentFileName(meta.name || meta.title || deck.record.name, 'presentation'))
             if (result.problems.length) toast(result.problems[0]!, 'info')
@@ -591,7 +598,7 @@ export function BuilderView({ params, navigate }: { params: URLSearchParams; nav
         return (
             <Presenter
                 template={deck.template}
-                job={deck.job}
+                job={job ?? deck.job}
                 title={meta.name || meta.title}
                 slides={visible}
                 startAt={presenting}

@@ -17,15 +17,19 @@ import { FONT_FAMILIES, type FontFamily } from "./pdfFonts";
 import {
   CALLOUT_TONES,
   CHART_KINDS,
+  CHART_MEASURES,
   DEFAULT_PAGE,
   DEFAULT_RELATED_LIMIT,
   MAX_BLOCKS,
   MAX_RELATED_ROWS,
   defaultStyle,
+  starterChart,
   starterTemplate,
   type BlockAlign,
   type CalloutTone,
   type ChartKind,
+  type ChartMeasure,
+  type ChartTemplate,
   type ListColumn,
   type ListStyle,
   type PdfBlock,
@@ -89,6 +93,10 @@ const identifier = (value: unknown, max = 80): string => text(value, max).replac
 
 /** An encoded query or sort — stored as written; the Table API is its validator. */
 const query = (value: unknown): string => text(value, 4_000);
+
+/** A record's sys_id: what a block or element names a chart template by. */
+export const SYS_ID = /^[0-9a-f]{32}$/;
+const sysId = (value: unknown): string => (SYS_ID.test(String(value ?? "")) ? String(value) : "");
 
 /**
  * A picture, as a `data:` URL. Anything a PDF reader could not be handed is
@@ -270,17 +278,28 @@ function readBlock(raw: unknown): PdfBlock | null {
             field: identifier(source.field),
             ...(query(source.query) ? { query: query(source.query) } : {}),
             groupBy: identifier(source.groupBy, 200),
+            ...(identifier(source.thenBy, 200) ? { thenBy: identifier(source.thenBy, 200) } : {}),
+            ...(identifier(source.start, 200) ? { start: identifier(source.start, 200) } : {}),
+            ...(identifier(source.end, 200) ? { end: identifier(source.end, 200) } : {}),
           }
         : undefined;
+      const template = sysId(input.template);
       return {
         type: "chart",
         chart: oneOf<ChartKind>(input.chart, CHART_KINDS.map(entry => entry.kind), "column"),
         ...(text(input.title, 200) ? { title: text(input.title, 200) } : {}),
         items: (Array.isArray(input.items) ? input.items : []).slice(0, 60).map(entry => {
           const item = asRecord(entry);
-          return { label: text(item.label, 120), value: text(item.value, 300) };
+          return {
+            label: text(item.label, 120),
+            value: text(item.value, 300),
+            ...(text(item.to, 120) ? { to: text(item.to, 120) } : {}),
+            ...(text(item.start, 300) ? { start: text(item.start, 300) } : {}),
+            ...(text(item.end, 300) ? { end: text(item.end, 300) } : {}),
+          };
         }),
         ...(related ? { related } : {}),
+        ...(template ? { template } : {}),
         height: bounded(input.height, 160, 40, 600),
         ...(optionalColor(input.color) ? { color: optionalColor(input.color) } : {}),
         ...(input.showValues === true ? { showValues: true } : {}),
@@ -491,4 +510,50 @@ export function readTemplate(
 export const serializeTemplate = (template: PdfTemplate): string => {
   const read = readTemplate(template);
   return JSON.stringify(read.ok ? read.value : template);
+};
+
+/* ---------------------------- chart templates ---------------------------- */
+
+/**
+ * Reads a chart template's body. The same posture as a document's: an empty
+ * body is a new chart, and anything unreadable in it falls back to the
+ * starter's value rather than failing the whole chart.
+ */
+export function readChartTemplate(raw: unknown, fields: StarterField[] = [], tableLabel?: string): Validated<ChartTemplate> {
+  let source: unknown = raw;
+  if (typeof raw === "string") {
+    const trimmed = raw.trim();
+    if (!trimmed) return valid(starterChart(fields, tableLabel));
+    try {
+      source = JSON.parse(trimmed);
+    } catch {
+      return invalid("A chart's body must be valid JSON describing the chart.");
+    }
+  }
+  if (!isRecord(source)) return invalid("A chart must be an object with a `chart` and a `groupBy`.");
+
+  const measure = oneOf<ChartMeasure>(source.measure, CHART_MEASURES.map(entry => entry.measure), "count");
+  const field = identifier(source.field);
+  return valid({
+    version: 1,
+    chart: oneOf<ChartKind>(source.chart, CHART_KINDS.map(entry => entry.kind), "column"),
+    ...(text(source.title, 200) ? { title: text(source.title, 200) } : {}),
+    groupBy: identifier(source.groupBy),
+    ...(identifier(source.thenBy) ? { thenBy: identifier(source.thenBy) } : {}),
+    ...(identifier(source.start) ? { start: identifier(source.start) } : {}),
+    ...(identifier(source.end) ? { end: identifier(source.end) } : {}),
+    // A sum of nothing is a count: without a field there is only one thing to measure.
+    measure: field ? measure : "count",
+    ...(field && measure !== "count" ? { field } : {}),
+    order: source.order === "field" ? "field" : "value",
+    height: bounded(source.height, 200, 40, 600),
+    ...(optionalColor(source.color) ? { color: optionalColor(source.color) } : {}),
+    ...(source.showValues === true ? { showValues: true } : {}),
+    ...(text(source.emptyText, 200) ? { emptyText: text(source.emptyText, 200) } : {}),
+  });
+}
+
+export const serializeChartTemplate = (chart: ChartTemplate): string => {
+  const read = readChartTemplate(chart);
+  return JSON.stringify(read.ok ? read.value : chart);
 };

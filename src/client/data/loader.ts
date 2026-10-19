@@ -2,6 +2,7 @@ import type { RecordSource, RelatedRows, RenderJob } from '../engine/render'
 import {
     DEFAULT_RELATED_LIMIT,
     MAX_RELATED_ROWS,
+    chartTemplateIds,
     relatedBlocks,
     relatedKey,
     type PdfTemplate,
@@ -11,6 +12,7 @@ import { recordFieldPaths, recordValues, rowValues, specimenValues, type SchemaF
 import { recordUrl } from '../engine/links'
 import { andQuery } from '../services/http'
 import { log } from '../debug/log'
+import { loadCharts } from './charts'
 import { RecordService, type ApiRecord } from '../services/records'
 import type { SessionContext, TableSchema } from '../services/schema'
 
@@ -194,6 +196,8 @@ export async function loadRecords(options: LoadOptions): Promise<LoadResult> {
 
     let finished = 0
     options.onProgress?.(0, jobs.length)
+    // The chart templates count their own tables, once for every record, alongside the related lists.
+    const charts = loadCharts(chartTemplateIds(template))
     await pool(
         jobs,
         CONCURRENCY,
@@ -215,6 +219,7 @@ export async function loadRecords(options: LoadOptions): Promise<LoadResult> {
             subject: `${schema.label} — ${title}`,
             records: sources,
             coverValues: contextValues(schema, session, title, count),
+            charts: await charts,
         },
     }
 }
@@ -240,8 +245,15 @@ export function specimenJob(
     const paths = recordFieldPaths(template)
     const related: Record<string, RelatedRows> = {}
     for (const block of relatedBlocks(template)) {
+        // Each column's stored value a date, a little later than the column before: a Gantt chart has bars to draw.
+        const day = 86_400_000
         const rows = [1, 2, 3].map(n =>
-            Object.fromEntries(block.columns.map(column => [column.field, `‹${column.header || column.field}› ${n}`]))
+            Object.fromEntries(
+                block.columns.flatMap((column, index) => [
+                    [column.field, `‹${column.header || column.field}› ${n}`],
+                    [`raw.${column.field}`, new Date(Date.UTC(2026, 0, 5) + (n * 9 + index * 12) * day).toISOString().slice(0, 10)],
+                ])
+            )
         )
         related[relatedKey(block)] = { rows, total: 3 }
     }

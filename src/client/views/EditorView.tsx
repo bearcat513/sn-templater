@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Designer } from '../designer/Designer'
+import { ChartEditorView } from './ChartEditorView'
 import { useSession } from '../data/session'
 import { describeError, log, useInspect } from '../debug/log'
 import { TEMPLATE_KIND_LABELS, type PdfTemplate, type TemplateKind } from '../engine/template'
@@ -57,6 +58,8 @@ export function EditorView({ id, navigate }: { id: string; navigate: Navigate })
     const [tab, setTab] = useState<Tab>('design')
     const [previewRecord, setPreviewRecord] = useState('')
     const [pending, setPending] = useState<(() => void) | null>(null)
+    // A chart template is not a document: it has its own designer.
+    const [chartOpened, setChartOpened] = useState<{ record: TemplateRecord; schema: TableSchema } | null>(null)
 
     /* ------------------------------- loading ------------------------------- */
 
@@ -64,9 +67,14 @@ export function EditorView({ id, navigate }: { id: string; navigate: Navigate })
         let live = true
         setLoaded(null)
         setLoadError('')
+        setChartOpened(null)
         ;(async () => {
             const record = await TemplateService.get(id)
             const schema = await SchemaService.table(record.table)
+            if (record.kind === 'chart') {
+                if (live) setChartOpened({ record, schema })
+                return
+            }
             // Read through the validator, so a body written by hand opens with
             // exactly the defaults it will be stored with — and an unreadable
             // one opens as the starter rather than a blank screen.
@@ -184,6 +192,10 @@ export function EditorView({ id, navigate }: { id: string; navigate: Navigate })
     const kind: TemplateKind = loaded?.record.kind ?? 'document'
     const title = meta?.name || 'Untitled'
     const jsonBody = useMemo(() => (template ? JSON.stringify(template, null, 2) : ''), [template])
+
+    if (chartOpened) {
+        return <ChartEditorView key={chartOpened.record.sysId} record={chartOpened.record} schema={chartOpened.schema} navigate={navigate} />
+    }
 
     if (loadError) {
         return (

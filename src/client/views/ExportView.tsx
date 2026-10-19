@@ -47,7 +47,11 @@ export function ExportView({ params, navigate }: { params: URLSearchParams; navi
     // extends — are offered.
     const origin = useAsync(() => SchemaService.table(fromTable), [fromTable], Boolean(fromTable))
     const templates = useAsync(
-        () => TemplateService.list({ activeOnly: true, tables: origin.data?.ancestors }),
+        // A chart template draws no record, so it is not something to export one with.
+        () =>
+            TemplateService.list({ activeOnly: true, tables: origin.data?.ancestors }).then(list =>
+                list.filter(template => template.kind !== 'chart')
+            ),
         [origin.data],
         !fromTable || Boolean(origin.data)
     )

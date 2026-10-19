@@ -13,7 +13,7 @@
  * footer — is resolved per page against the record that owns it, so a footer
  * reading `{{record.number}}` is right on every page of a fifty-record file.
  */
-import { chartData, layoutChart, type ChartScene, type ChartStyle } from "./chart";
+import { chartData, drawChart, layoutChart, resolveChart, type ChartStyle, type LoadedChart } from "./chart";
 import { renderCustomSlide } from "./freeform";
 import { decodeImage, imageBox, type EmbeddableImage } from "./image";
 import { recordUrl, safeUrl } from "./links";
@@ -71,6 +71,12 @@ export type RenderJob = {
   records: RecordSource[];
   /** Token values for the cover, which belongs to the batch rather than a record. */
   coverValues: Record<string, string>;
+  /**
+   * The chart templates the template and its custom slides place, counted,
+   * by sys_id. The same for every record: a chart template counts its own
+   * table, not the record it is shown with.
+   */
+  charts?: Record<string, LoadedChart>;
 };
 
 /**
@@ -85,6 +91,8 @@ export type SlideSource = {
   custom?: CustomSlide;
   values: Record<string, string>;
   related: Record<string, RelatedRows>;
+  /** The job's chart templates, carried with each slide for the screen, which draws a slide at a time. */
+  charts?: Record<string, LoadedChart>;
 };
 
 export type PdfRenderResult = {
@@ -121,6 +129,7 @@ type RenderContext = {
   /** The section's own values, for what is looked up rather than filled — a sys_id, the instance. */
   values: Record<string, string>;
   related: Record<string, RelatedRows>;
+  charts: Record<string, LoadedChart>;
   picture: PictureResolver;
   problems: Set<string>;
 };
@@ -233,6 +242,9 @@ function renderSections(
         fill,
         picture,
         base: section.values["url.instance"],
+        charts: job.charts ?? {},
+        chartStyle: chartStyle(page, section.custom.background ?? page.background),
+        problems,
       });
     } else {
       const context: RenderContext = {
@@ -242,6 +254,7 @@ function renderSections(
         fill,
         values: section.values,
         related: section.related,
+        charts: job.charts ?? {},
         picture,
         problems,
       };
@@ -925,13 +938,20 @@ function renderCode(block: CodeBlock, context: RenderContext): void {
 /* ---------------------------------- chart -------------------------------- */
 
 /** The inks and sheet a page gives its charts. */
-export const chartStyle = (page: PdfPageSetup, surface = page.background ?? "#ffffff"): ChartStyle => ({
+export const chartStyle = (page: PdfPageSetup, surface = page.background): ChartStyle => ({
   family: page.family,
   fontSize: page.fontSize,
   textColor: page.textColor,
   mutedColor: page.mutedColor,
-  surface,
+  accentColor: page.accentColor,
+  surface: surface ?? "#ffffff",
 });
+
+/** What a problem with a chart calls it. */
+export const chartName = (block: ChartBlock, charts: Record<string, LoadedChart>): string =>
+  block.template
+    ? `The chart “${charts[block.template]?.name ?? block.template}”`
+    : `Chart of ${block.related?.table || "written figures"}`;
 
 /**
  * A chart: a title like a related list's, the plot laid out by ./chart.ts,
@@ -940,11 +960,12 @@ export const chartStyle = (page: PdfPageSetup, surface = page.background ?? "#ff
  */
 function renderChart(block: ChartBlock, context: RenderContext): void {
   const { document, page, style, fill } = context;
-  const data = chartData(block, text => fill(text), context.related);
-  if (data.error) context.problems.add(`Chart of ${block.related?.table}: ${data.error}`);
+  const data = chartData(block, text => fill(text), context.related, context.charts);
+  const { look, title: titleText, emptyText } = resolveChart(block, context.charts);
+  if (data.error) context.problems.add(`${chartName(block, context.charts)}: ${data.error}`);
 
   const extra = data.count === undefined ? undefined : { "list.count": String(data.count) };
-  const title = block.title ? fill(block.title, extra) : "";
+  const title = titleText ? fill(titleText, extra) : "";
   const titleStyle = {
     size: page.fontSize + 2,
     bold: true,
@@ -955,14 +976,14 @@ function renderChart(block: ChartBlock, context: RenderContext): void {
   const heading = style.headingUppercase ? title.toUpperCase() : title;
 
   if (!data.points.length) {
-    const empty = block.emptyText ? fill(block.emptyText, extra) : "";
+    const empty = emptyText ? fill(emptyText, extra) : "";
     if (!empty) return;
     if (heading) document.text(heading, titleStyle);
     document.text(empty, { size: page.fontSize - 0.5, italic: true, color: page.mutedColor, spaceAfter: 6 });
     return;
   }
 
-  const scene = layoutChart(block, data.points, document.contentWidth, chartStyle(page));
+  const scene = layoutChart(look, data.points, document.contentWidth, chartStyle(page));
   const titleHeight = heading ? document.text(heading, titleStyle, { draw: false }) : 0;
   document.ensureRoom(titleHeight + scene.height);
   if (heading) document.text(heading, titleStyle);
@@ -974,40 +995,6 @@ function renderChart(block: ChartBlock, context: RenderContext): void {
     document.text(data.note, { size: Math.max(6, page.fontSize - 2), color: page.mutedColor });
   }
   document.moveDown(10);
-}
-
-/** A laid-out chart's marks, through the writer's own primitives, with its top-left at (x, y). */
-export function drawChart(document: PdfDocument, scene: ChartScene, x: number, y: number): void {
-  const at = ([px, py]: [number, number]): [number, number] => [x + px, y + py];
-  for (const mark of scene.marks) {
-    switch (mark.kind) {
-      case "shape":
-        document.withOpacity(mark.opacity, () =>
-          document.drawPath(mark.points.map(at), { fill: mark.fill, stroke: mark.stroke, strokeWidth: mark.strokeWidth }),
-        );
-        break;
-      case "polyline":
-        // Segment by segment: round caps make the joins.
-        for (let index = 1; index < mark.points.length; index++) {
-          const [x1, y1] = at(mark.points[index - 1]!);
-          const [x2, y2] = at(mark.points[index]!);
-          document.drawLine(x1, y1, x2, y2, { color: mark.color, thickness: mark.width });
-        }
-        break;
-      case "rule":
-        document.drawLine(x + mark.x1, y + mark.y1, x + mark.x2, y + mark.y2, { color: mark.color, thickness: mark.width });
-        break;
-      case "dot": {
-        const ring = mark.r + 2;
-        document.drawShape("ellipse", x + mark.cx - ring, y + mark.cy - ring, ring * 2, ring * 2, { fill: mark.ring });
-        document.drawShape("ellipse", x + mark.cx - mark.r, y + mark.cy - mark.r, mark.r * 2, mark.r * 2, { fill: mark.fill });
-        break;
-      }
-      case "text":
-        document.drawTextAt(mark.text, x + mark.x, y + mark.y, { size: mark.size, color: mark.color, bold: mark.bold });
-        break;
-    }
-  }
 }
 
 /* --------------------------------- callout ------------------------------- */

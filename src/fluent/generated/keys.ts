@@ -188,6 +188,17 @@ declare global {
                         }
                     },
                     {
+                        table: 'sys_choice'
+                        id: '0a9e04f3a1a44f9ca46079ca4080c1c9'
+                        key: {
+                            name: 'x_1040823_template_template'
+                            element: 'kind'
+                            value: 'chart'
+                            language: 'en'
+                            dependent_value: 'NULL'
+                        }
+                    },
+                    {
                         table: 'sys_security_acl_role'
                         id: '0d869913736645aa84f924a0a4395e63'
                         key: {

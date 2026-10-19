@@ -7,11 +7,11 @@ The templating engine is ported from [cpq-vibes](https://github.com/bearcat513/c
 ## How it works
 
 - A **template** is a record on `x_1040823_template_template` with three parts:
-  - `kind`: `document` or `deck`
+  - `kind`: `document`, `deck` or `chart`
   - `table`: the table it's for. Tables that extend it can use it too.
   - `body`: the canonical JSON describing the document.
 - **Rendering happens in the browser.** The live preview and the downloaded file come from the same pure renderer (`src/client/engine/render.ts`), so the preview can't disagree with the file.
-- **Data is read with the viewer's own session** through the Table API. A template can only show fields and related rows that its reader can already open.
+- **Data is read with the viewer's own session** through the Table API (and the Aggregate API, for chart templates). A template can only show fields and related rows that its reader can already open.
 
 ### Tokens
 
@@ -44,6 +44,25 @@ Page-level features are the letterhead (logo plus text), a watermark, a footer w
 
 **Links:** only `http(s):`, `mailto:` and `tel:` addresses, and paths on this instance (made absolute), are made into links. Anything else, such as `javascript:`, prints as plain text and is reported as a problem on export.
 
+## Charts
+
+A **chart template** (kind `chart`) is a chart kept on its own: it counts the records of its table that its filter matches, one bar, point or slice per value of a field (a state, a priority, an assignment group). It can show the number of records in each group, or the total, average, lowest or highest of a number field. It draws as a column, bar, line, area, pie, donut or funnel chart.
+
+Some charts take more than one field:
+
+- **Stacked column**, **heatmap** and **Sankey** group by two fields — a column and its stack, a row and its column, or where each record comes from and where it goes (category → assignment group). Each pair is counted, or measured, on its own.
+- **Gantt** draws one bar per record, named by one field and running from a start date to an end date. A record without an end is a milestone. Up to 40 records are drawn, earliest first, and a line marks today.
+
+A chart block can draw any of these too, from figures written into the block or from related records.
+
+- **Make one** with **New chart** on the Templates page. The chart designer counts live as you change it and previews the chart in a document and on a slide. **Download PDF** saves either view.
+- **Put it in a document or deck template** with a **Chart** block set to **A chart template**. The block sets the height and, optionally, its own title. Everything else comes from the chart template.
+- **Put it on a custom slide** with **Insert › Chart** in the slide builder. The chart fills the box you draw, title and all. From a script: `slide.chart('Open P1s by group', { x, y, w, h })`.
+- Placed charts are references. Change the chart template once and every document, deck and presentation that shows it changes too. It is counted again each time one of them opens.
+- **How it counts:** with the Aggregate API, as the viewer, so a chart of 100,000 records is one request and ACLs apply. If an instance refuses that API to someone, Templater reads up to 2,000 rows through the Table API instead, counts them in the browser, and prints under the chart how many it counted.
+
+A chart block can also chart figures written into it (tokens work) or count a record's related records. Those charts belong to the template they are in.
+
 ## Presentations and the slide builder
 
 A **presentation** is a deck you arrange and save. It is a record on `x_1040823_template_presentation` with these parts:
@@ -60,7 +79,7 @@ To open the **slide builder**, use **Build slides** on the Present page, or **Ed
 - **Arranging:** drag slides in the left-hand list to reorder them, or hide a slide so it is left out of the show and the PDF. Record slides can be moved and hidden; to change what is on one, edit the template.
 - **Custom slides:** the **+** between any two slides inserts a custom slide there. Layouts are Blank, Title slide, Title and content, Section header, Two content and Title only. A custom slide uses the deck's page size, colours and fonts. Its prompts ("Click to add title") show only while editing.
 - **Building a slide:**
-  - Insert text boxes, shapes, lines, arrows, pictures, tables and code boxes. You can also drop a picture onto the slide. The shapes are rectangle, rounded rectangle, ellipse, triangle, right triangle, diamond, pentagon, hexagon, parallelogram, trapezoid, chevron, block arrow and star.
+  - Insert text boxes, shapes, lines, arrows, pictures, tables, code boxes and charts. You can also drop a picture onto the slide. The shapes are rectangle, rounded rectangle, ellipse, triangle, right triangle, diamond, pentagon, hexagon, parallelogram, trapezoid, chevron, block arrow and star.
   - Rotate anything except a line with the round handle above it (Shift turns in 15° steps), or by typing an angle in the inspector. A rotated element still resizes from its handles with the opposite corner held in place.
   - Tables: double-click a cell to type in it, and use Tab and Shift+Tab to move between cells. The inspector adds and removes rows and columns, edits every cell, and sets the header row, banding, cell fill and grid lines.
   - A code box, or any shape with **Code** switched on, keeps every space and breaks lines anywhere. Tab indents while you type in it.

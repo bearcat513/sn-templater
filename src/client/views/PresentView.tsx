@@ -1,9 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react'
+import { loadCharts, withCharts } from '../data/charts'
 import { canChangePresentation, loadDeck, sourceOf } from '../data/deck'
 import { loadRecords } from '../data/loader'
 import { useSession } from '../data/session'
 import { describeError, log, useInspect } from '../debug/log'
-import { readPresentation } from '../engine/presentation'
+import { presentationChartIds, readPresentation } from '../engine/presentation'
 import { renderPdfDocument, renderPdfSlides, type RenderJob } from '../engine/render'
 import type { PdfTemplate } from '../engine/template'
 import { documentFileName } from '../engine/tokens'
@@ -87,10 +88,12 @@ export function PresentView({ params, navigate }: { params: URLSearchParams; nav
             const presentation = await PresentationService.get(sysId)
             if (!presentation.template) throw new Error(`“${presentation.name}” has no deck: its template was deleted. Open it in the builder to choose another.`)
             const loaded = await loadDeck(sourceOf(presentation), session)
-            const slides = shown(arrange(paginate(loaded.template, loaded.job), loaded.job, readPresentation(presentation.body ?? '')))
+            const body = readPresentation(presentation.body ?? '')
+            const job = withCharts(loaded.job, await loadCharts(presentationChartIds(body)))
+            const slides = shown(arrange(paginate(loaded.template, job), job, body))
             setDeck({
                 template: loaded.template,
-                job: loaded.job,
+                job,
                 title: presentation.name,
                 table: loaded.schema.name,
                 matched: loaded.matched,
@@ -211,7 +214,9 @@ export function PresentView({ params, navigate }: { params: URLSearchParams; nav
         )
     }
 
-    const list = (templates.data ?? []).filter(template => showAll || template.kind === 'deck' || template.sysId === templateId)
+    const list = (templates.data ?? []).filter(
+        template => template.kind !== 'chart' && (showAll || template.kind === 'deck' || template.sysId === templateId)
+    )
 
     return (
         <div className="tp-page tp-page--narrow">

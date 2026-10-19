@@ -1,4 +1,4 @@
-import type { TemplateKind } from '../engine/template'
+import { TEMPLATE_KINDS as KINDS, type TemplateKind } from '../engine/template'
 import { getJson, getList, query, request } from './http'
 
 export const TEMPLATE_TABLE = 'x_1040823_template_template'
@@ -35,7 +35,7 @@ const LIST_FIELDS = 'sys_id,name,kind,table,description,active,query,order_by,re
 const toRecord = (row: ApiTemplate): TemplateRecord => ({
     sysId: row.sys_id?.value ?? '',
     name: row.name?.value ?? '',
-    kind: row.kind?.value === 'deck' ? 'deck' : 'document',
+    kind: KINDS.includes(row.kind?.value as TemplateKind) ? (row.kind!.value as TemplateKind) : 'document',
     table: row.table?.value ?? '',
     tableLabel: row.table?.display_value || row.table?.value || '',
     description: row.description?.value ?? '',

@@ -186,7 +186,23 @@ export type TableElement = ElementBox & {
   border?: string;
 };
 
-export type SlideElement = ShapeElement | LineElement | ImageElement | TableElement;
+/**
+ * A chart template, placed on the slide: the template's own records, grouping
+ * and look, laid out to fill the box — title, plot and all. It is a reference,
+ * so the chart on the slide is whatever the template counts when the
+ * presentation opens.
+ */
+export type ChartElement = ElementBox & {
+  type: "chart";
+  /** The chart template's sys_id. */
+  template: string;
+  /** Its name when it was placed: what the builder calls it before it has loaded, or once it is gone. */
+  name?: string;
+  /** Leave out the chart's title, when the slide has one of its own. */
+  hideTitle?: boolean;
+};
+
+export type SlideElement = ShapeElement | LineElement | ImageElement | TableElement | ChartElement;
 
 export const MAX_TABLE_ROWS = 20;
 export const MAX_TABLE_COLUMNS = 10;
@@ -409,6 +425,18 @@ function readElement(value: unknown): SlideElement | null {
     }
     case "table":
       return readTable(value, box);
+    case "chart": {
+      const template = String(value.template ?? "");
+      if (!/^[0-9a-f]{32}$/.test(template)) return null;
+      const name = String(value.name ?? "").trim().slice(0, 100);
+      return {
+        type: "chart",
+        ...box,
+        template,
+        ...(name ? { name } : {}),
+        ...(value.hideTitle === true ? { hideTitle: true } : {}),
+      };
+    }
     default:
       return null;
   }
@@ -521,6 +549,11 @@ export function buildSequence(slide: CustomSlide): string[] {
 }
 
 export const serializePresentation = (body: PresentationBody): string => JSON.stringify(readPresentation(body));
+
+/** The chart templates a presentation's custom slides place, each once. */
+export const presentationChartIds = (body: PresentationBody): string[] => [
+  ...new Set(body.slides.flatMap(slide => slide.elements.flatMap(element => (element.type === "chart" ? [element.template] : [])))),
+];
 
 /* -------------------------------- arranging ------------------------------ */
 

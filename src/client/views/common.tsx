@@ -1,14 +1,17 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { MAX_RECORDS } from '../data/loader'
-import { TEMPLATE_KIND_LABELS } from '../engine/template'
+import { TEMPLATE_KIND_LABELS, type TemplateKind } from '../engine/template'
 import { RecordPicker } from '../designer/RecordPicker'
 import { useDebounced } from '../hooks/useDebounced'
 import { RecordService } from '../services/records'
 import { SchemaService, type TableSchema } from '../services/schema'
 import type { TemplateRecord } from '../services/templates'
 import { Combobox, type ComboOption } from '../ui/Combobox'
-import { Icon } from '../ui/icons'
+import { Icon, type IconName } from '../ui/icons'
 import { Field, Input, NumberInput, Segmented, Spinner, Textarea, cx } from '../ui/controls'
+
+/** Each kind of template's icon, wherever templates are listed. */
+export const KIND_ICONS: Record<TemplateKind, IconName> = { document: 'file', deck: 'slides', chart: 'chart' }
 
 /** Choosing a table by name or label, among the ones the viewer can read. */
 export function TablePicker({
@@ -65,7 +68,7 @@ export function TemplateChooser({
                     onClick={() => onChange(template)}
                 >
                     <span className={cx('tp-choice__icon', `tp-kind--${template.kind}`)}>
-                        <Icon name={template.kind === 'deck' ? 'slides' : 'file'} />
+                        <Icon name={KIND_ICONS[template.kind]} />
                     </span>
                     <span className="tp-choice__text">
                         <span className="tp-choice__name">{template.name}</span>

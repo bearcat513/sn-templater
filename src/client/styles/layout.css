@@ -228,6 +228,11 @@
   color: #7c3aed;
 }
 
+.tp-kind--chart {
+  background: rgba(21, 128, 61, 0.12);
+  color: #15803d;
+}
+
 .tp-template-card__name {
   font-size: 1rem;
   font-weight: 700;

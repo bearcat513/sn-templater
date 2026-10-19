@@ -1,5 +1,5 @@
 import React, { useLayoutEffect, useRef } from 'react'
-import { chartData, layoutChart } from '../engine/chart'
+import { chartData, layoutChart, resolveChart } from '../engine/chart'
 import { pageDimensions } from '../engine/pdf'
 import { safeUrl } from '../engine/links'
 import {
@@ -136,6 +136,8 @@ export function SlideView({ template, slide, width, className, editing, builds, 
                     <div className="tp-sheet__free">
                         <FreeformContent
                             slide={custom}
+                            charts={slide.charts ?? {}}
+                            chartStyle={chartStyle(page, custom.background || page.background)}
                             family={page.family}
                             fill={fill}
                             editing={editing}
@@ -788,11 +790,13 @@ function ChartBlockView({
     slide,
     contentWidth,
 }: Omit<BlockProps, 'block' | 'interactive'> & { block: Extract<PdfBlock, { type: 'chart' }> }) {
-    const data = chartData(block, text => fill(text), slide.related)
+    const charts = slide.charts ?? {}
+    const data = chartData(block, text => fill(text), slide.related, charts)
+    const { look, title: titleText, emptyText } = resolveChart(block, charts)
     const extra = data.count === undefined ? undefined : { 'list.count': String(data.count) }
-    const title = block.title ? fill(block.title, extra) : ''
+    const title = titleText ? fill(titleText, extra) : ''
     const empty = !data.points.length
-    if (empty && !block.emptyText) return null
+    if (empty && !emptyText) return null
     const surface = slide.custom?.background || page.background || '#ffffff'
 
     return (
@@ -814,11 +818,11 @@ function ChartBlockView({
             )}
             {empty ? (
                 <div style={{ fontSize: page.fontSize - 0.5, fontStyle: 'italic', color: page.mutedColor }}>
-                    {fill(block.emptyText ?? '', extra)}
+                    {fill(emptyText ?? '', extra)}
                 </div>
             ) : (
                 <ChartSvg
-                    scene={layoutChart(block, data.points, contentWidth, chartStyle(page, surface))}
+                    scene={layoutChart(look, data.points, contentWidth, chartStyle(page, surface))}
                     family={page.family}
                     label={title || 'Chart'}
                 />

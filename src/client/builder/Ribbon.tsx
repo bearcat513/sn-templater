@@ -1,4 +1,5 @@
 import React from 'react'
+import { useChartTemplates } from '../data/charts'
 import { FONT_FAMILIES, type FontFamily } from '../engine/pdfFonts'
 import { SHAPE_KINDS, type ShapeElement, type ShapeKind, type TableElement } from '../engine/presentation'
 import { Icon, type IconName } from '../ui/icons'
@@ -88,6 +89,8 @@ export function Ribbon({ editor }: { editor: SlideEditor }) {
     const shapePatch = (patch: Partial<ShapeElement>, merge?: string) =>
         editor.patch(element => (element.type === 'shape' ? patch : {}), merge)
     const some = editor.selection.length > 0
+    const chartTemplates = useChartTemplates()
+    const charts = (chartTemplates.data ?? []).filter(chart => chart.active)
 
     return (
         <div className="tp-ribbon" role="toolbar" aria-label="Slide tools">
@@ -117,6 +120,27 @@ export function Ribbon({ editor }: { editor: SlideEditor }) {
                     }))}
                 />
                 <ToolButton icon="code" label="Code box" onClick={editor.insertCode} />
+                <Menu
+                    label="Chart"
+                    icon="chart"
+                    align="start"
+                    items={
+                        charts.length
+                            ? charts.map(chart => ({
+                                  label: chart.name,
+                                  icon: 'chart' as const,
+                                  onSelect: () => editor.insertChart(chart),
+                              }))
+                            : [
+                                  {
+                                      label: chartTemplates.loading ? 'Loading charts…' : 'No chart templates yet',
+                                      icon: 'chart' as const,
+                                      disabled: true,
+                                      onSelect: () => undefined,
+                                  },
+                              ]
+                    }
+                />
             </div>
 
             <div className="tp-ribbon__group" aria-label="Font">

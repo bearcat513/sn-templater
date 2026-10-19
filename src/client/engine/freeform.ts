@@ -7,11 +7,13 @@
  * a shape's text sits, how far in from its edge, where an arrowhead points —
  * so the exported page and the slide on screen put things in the same place.
  */
+import { layoutChartBox, drawChart, type ChartData, type ChartScene, type ChartStyle, type LoadedChart } from "./chart";
 import type { EmbeddableImage } from "./image";
 import { safeUrl } from "./links";
 import type { PdfDocument } from "./pdf";
 import { measureText, wrapText, type FontFamily, type FontStyle } from "./pdfFonts";
-import type { CustomSlide, LineElement, ShapeElement, ShapeKind, SlideElement, TableElement } from "./presentation";
+import { TOKEN_PATTERN } from "./tokens";
+import type { ChartElement, CustomSlide, LineElement, ShapeElement, ShapeKind, SlideElement, TableElement } from "./presentation";
 
 /** PowerPoint's own text-box insets: a tenth of an inch at the sides, a twentieth top and bottom. */
 export const TEXT_INSET_X = 7.2;
@@ -257,6 +259,50 @@ export const arrowInset = (strokeWidth: number): number => Math.max(7, strokeWid
  */
 const lineOffset = (lineHeight: number): number => (lineHeight - 1.117) / 2 + 0.105;
 
+/* ---------------------------------- charts -------------------------------- */
+
+/**
+ * A chart element, laid out to its box: the chart template's title, plot and
+ * note, or — before the chart has loaded, or once its template is gone — a
+ * line saying so, so a hole in a slide is never silent.
+ */
+export function chartElementScene(
+  element: Pick<ChartElement, "template" | "name" | "hideTitle" | "w" | "h">,
+  charts: Record<string, LoadedChart>,
+  style: ChartStyle,
+  fill: (text: string) => string,
+): ChartScene {
+  const loaded = charts[element.template];
+  if (!loaded || loaded.error) {
+    const name = loaded?.name || element.name;
+    const what = name ? `“${name}”` : "the chart";
+    const why = !loaded ? `Counting ${what}…` : `${name ? what : "The chart"} could not be drawn: ${loaded.error}`;
+    return layoutChartBox(
+      { chart: "column", height: element.h },
+      { points: [] },
+      { emptyText: why },
+      element.w,
+      element.h,
+      style,
+    );
+  }
+  const data: ChartData = { points: loaded.points, count: loaded.total, ...(loaded.note ? { note: loaded.note } : {}) };
+  const extra = { "list.count": String(loaded.total) };
+  const words = (text: string | undefined) => (text ? fillWith(fill, text, extra) : undefined);
+  return layoutChartBox(
+    loaded.spec,
+    data,
+    { title: element.hideTitle ? undefined : words(loaded.spec.title), emptyText: words(loaded.spec.emptyText) },
+    element.w,
+    element.h,
+    style,
+  );
+}
+
+/** `{{list.count}}` is the chart's, not the slide's: filled first, then the slide's own tokens. */
+const fillWith = (fill: (text: string) => string, text: string, extra: Record<string, string>): string =>
+  fill(text.replace(TOKEN_PATTERN, (token, name: string) => extra[name] ?? token));
+
 /* --------------------------------- drawing ------------------------------- */
 
 export type FreeformContext = {
@@ -266,6 +312,11 @@ export type FreeformContext = {
   picture: (source: string, what: string) => EmbeddableImage | null;
   /** The instance, for links that are paths on it. */
   base?: string;
+  /** Chart templates placed on the slide, counted, by sys_id. */
+  charts: Record<string, LoadedChart>;
+  /** The page's inks, on this slide's own background. */
+  chartStyle: ChartStyle;
+  problems: Set<string>;
 };
 
 /**
@@ -339,6 +390,14 @@ function drawElement(element: SlideElement, index: number, context: FreeformCont
       });
       if (element.arrowEnd) document.drawPolygon(arrowHead(from, to, element.strokeWidth), element.stroke);
       if (element.arrowStart) document.drawPolygon(arrowHead(to, from, element.strokeWidth), element.stroke);
+      break;
+    }
+
+    case "chart": {
+      const loaded = context.charts[element.template];
+      if (!loaded) context.problems.add(`The chart “${element.name ?? element.template}” on a custom slide had not been counted yet`);
+      else if (loaded.error) context.problems.add(`The chart “${loaded.name}”: ${loaded.error}`);
+      drawChart(document, chartElementScene(element, context.charts, context.chartStyle, context.fill), element.x, element.y);
       break;
     }
 

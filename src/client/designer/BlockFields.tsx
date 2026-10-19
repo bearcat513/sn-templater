@@ -666,6 +666,7 @@ export function summarise(block: PdfBlock): string {
         case 'code':
             return block.title || block.code.split('\n').find(line => line.trim())?.trim().slice(0, 80) || 'empty'
         case 'chart':
+            if (block.template !== undefined) return block.template ? 'a chart template' : 'chart template not chosen yet'
             return `${block.chart} · ${
                 block.related
                     ? block.related.table

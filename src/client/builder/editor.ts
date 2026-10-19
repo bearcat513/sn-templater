@@ -27,6 +27,8 @@ export type SlideEditor = {
     insertTable: (rows: number, columns: number) => void
     /** Opens the file picker, or places the file given. */
     insertImage: (file?: File) => void
+    /** Places a chart template. */
+    insertChart: (template: { sysId: string; name: string }) => void
     /** The format painter's copied look, while it is waiting for an element to be clicked. */
     painter: CopiedStyle | null
     /** Arms the painter with the selected element's look, or puts it down again. */

@@ -16,6 +16,8 @@ TemplaterUtils.prototype = {
         var template = new GlideRecord('x_1040823_template_template');
         template.addActiveQuery();
         template.addQuery('table', 'IN', tables.join(','));
+        // A chart counts its table rather than drawing a record, so it makes nothing from this one.
+        template.addQuery('kind', '!=', 'chart');
         template.setLimit(1);
         template.query();
         return template.hasNext();
