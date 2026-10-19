@@ -138,6 +138,10 @@ declare global {
                         table: 'sys_app_module'
                         id: '03fa1c70d5234d88aff0304e1dc5b91f'
                     }
+                    'templater-script-include': {
+                        table: 'sys_script_include'
+                        id: '28cb670974314006af77679be81068e4'
+                    }
                     'templater-utils': {
                         table: 'sys_script_include'
                         id: 'c99dd377d98b4d6c8f404babc3c1189e'

@@ -147,6 +147,124 @@ scripts/               build-starters.mjs
 - **Export with Templater**: a related link on any form, shown only where an active template applies.
 - **Export / present with Templater**: a list action on selected rows.
 
+## Scripting
+
+The `Templater` script include lets business rules, flows (in a script step), scheduled jobs and fix scripts work with templates and presentations. Its source is `src/fluent/script-includes/templater.server.js`.
+
+```js
+var templater = new x_1040823_template.Templater();
+```
+
+PDFs are still drawn in the browser. The script include gives you **links** that open Templater and make the file. Templater then reads the data with the viewer's own session, as it always does.
+
+Records are read and written with `GlideRecord`, as server scripts normally do. To go through ACLs as the current user instead, use `new x_1040823_template.Templater({ secure: true })`. Methods that take a template or presentation accept a sys_id, a name (an active template wins) or a GlideRecord. They throw an `Error` with a readable message when something is wrong.
+
+### Templates
+
+| Method | Returns |
+| --- | --- |
+| `getTemplate(template)` | `{ sys_id, name, kind, table, description, active, query, orderBy, limit, body }` (body parsed), or `null` |
+| `findTemplates({ table, kind, activeOnly })` | Matching templates without their bodies. `table` also matches templates made for a table it extends. `activeOnly` defaults to true. |
+| `createTemplate({ name, table, kind, body, description, query, orderBy, limit, active })` | The new sys_id. `body` is an object or JSON. If you leave it out, the designer starts the template from the table's fields. |
+| `copyTemplate(template, changes)` | The copy's sys_id, named "… (copy)" unless `changes.name` says otherwise. |
+| `updateTemplate(template, changes)` | The sys_id. |
+
+### PDF links
+
+`exportUrl(template, records, { absolute })` opens the export view, which makes the PDF straight away. `records` can be:
+
+- a GlideRecord (such as `current`) or one sys_id
+- an array of sys_ids
+- an encoded query on the template's table
+
+`absolute: true` puts the instance address in front, for emails.
+
+```js
+// Business rule on incident, after update, when state changes to Resolved
+var url = new x_1040823_template.Templater().exportUrl('Incident report', current, { absolute: true });
+current.work_notes = '[code]<a href="' + url + '" target="_blank">Incident report (PDF)</a>[/code]';
+```
+
+### Presentations
+
+`deck(template)` starts a new presentation on a deck template, and `openDeck(presentation)` loads a saved one to change. Both return a builder whose methods chain. Nothing is written until `save()`.
+
+| Builder method | What it does |
+| --- | --- |
+| `title(text)` | The title slide's `{{deck.title}}`. |
+| `records(query \| GlideRecord \| [sys_ids])` | Which records get a slide. A queried GlideRecord gives its query; `current` gives just that record. If you don't set records, the template's default records are used. |
+| `orderBy('-opened_at')`, `limit(n)` | Sort order (minus sign for descending) and how many records, up to 500. |
+| `addSlide(layout, content, options)` | A custom slide. See below. |
+| `notes(record \| 'cover' \| key, text)` | Speaker notes on a record's slide or the title slide. |
+| `hide(record \| 'cover' \| key)` | Leaves that slide out of the show and the PDF. |
+| `transition('fade')` | none, fade, push, wipe or zoom, for every slide. |
+| `save(name)` | Writes it and returns the sys_id. The name defaults to the title. |
+| `presentUrl({ absolute })`, `buildUrl({ absolute })` | Links to present it or open it in the slide builder, after `save()`. |
+| `recordIds()` | The sys_ids the deck would show now, in order. |
+
+**Layouts:** `blank`, `title`, `titleContent`, `section`, `twoContent` and `titleOnly`, the same as the builder's, in the deck's own colours and margins. Fill a layout's boxes with an object:
+
+- `title`: `{ title, subtitle }`
+- `titleContent`: `{ title, body }`
+- `section`: `{ title, text }`
+- `twoContent`: `{ title, left, right }`
+- `titleOnly`: `{ title }`
+
+`body`, `left` and `right` take a string or an array of bullet points.
+
+**Placing elements yourself:** pass a function instead of the content object, and it is called with the slide:
+
+| Slide method | Draws |
+| --- | --- |
+| `text(text, style)` | A text box. |
+| `bullets(items, style)` | A bulleted text box. |
+| `shape(kind, style)` | rect, roundRect, ellipse, triangle, rightTriangle, diamond, pentagon, hexagon, parallelogram, trapezoid, chevron, arrow or star. Put text in it with `style.text`. |
+| `line({ x1, y1, x2, y2, stroke, strokeWidth, dashed, arrowStart, arrowEnd })` | A straight line. |
+| `table(rows, style)` | A grid. `rows` is an array of arrays of cell text. Up to 20 × 10. |
+| `image(dataUrl, style)` | A PNG or JPEG `data:` URL. |
+| `name()`, `background()`, `furniture()`, `notes()`, `transition()` | The slide's own settings. |
+
+Positions are in points from the top left: `slide.width` × `slide.height` (960 × 540 for 16:9). `slide.left`, `slide.top`, `slide.innerWidth` and `slide.innerHeight` give the area inside the deck's margins.
+
+Common style keys:
+
+- **Box:** `x`, `y`, `w`, `h`
+- **Text:** `size`, `color`, `bold`, `italic`, `underline`, `align`, `valign`, `family` (helvetica, times, courier), `lineHeight`, `code`
+- **Shape:** `fill`, `stroke`, `strokeWidth`
+- **Any element:** `opacity`, `rotation`, `link`
+- **Presenting:** `build: { effect: 'fade', order: 1 }` holds an element back until a click
+
+Colours are hex. Tokens work in slide text: `{{deck.title}}`, `{{deck.count}}`, `{{table.label}}`, `{{now.date}}`, `{{user.name}}`, `{{slide.number}}`, `{{slide.count}}`.
+
+**Where a slide goes:** set `options.position` to `'end'` (the default), `'start'`, `'afterCover'`, `{ after: record }` or `{ before: record }`. `record` is a sys_id or GlideRecord. Other options are `name`, `background`, `furniture`, `notes` and `transition`.
+
+```js
+// Scheduled job, Mondays: this week's P1 review, with an agenda and a closing slide
+var templater = new x_1040823_template.Templater();
+var deck = templater.deck('Major incident review')
+    .title('P1 review, week of ' + new GlideDate().getDisplayValue())
+    .records('active=true^priority=1')
+    .orderBy('-opened_at')
+    .limit(15)
+    .addSlide('titleContent', { title: 'Agenda', body: ['Open P1s', 'Actions', 'Next steps'] }, { position: 'afterCover' })
+    .addSlide('blank', function (slide) {
+        slide.text('Questions?', { x: 0, y: 200, w: slide.width, h: 100, size: 48, bold: true, align: 'center', valign: 'middle' })
+            .line({ x1: slide.left, y1: 330, x2: slide.width - slide.left, y2: 330, stroke: '#1d4ed8', strokeWidth: 3 });
+    }, { notes: 'Open the floor.' });
+deck.save();
+gs.info('This week\'s P1 review: ' + deck.presentUrl({ absolute: true }));
+```
+
+```js
+// Add a slide before one incident in a saved presentation
+new x_1040823_template.Templater()
+    .openDeck('Weekly P1 review')
+    .addSlide('section', { title: 'Deep dive', text: '{{deck.count}} incidents' }, { position: { before: incidentSysId } })
+    .save();
+```
+
+Each record slide is drawn again every time the presentation opens, from whatever its filter matches then. A custom slide placed before or after a record stays next to it while that record is in the deck. A presentation made by a script belongs to the user the script ran as, so a scheduled job's presentations can be changed only by Templater editors.
+
 ## Debugging
 
 Set the system property `x_1040823_template.debug` to `true` to turn on the developer tools. It is off by default, and only admins can change it.
