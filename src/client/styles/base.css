@@ -18,6 +18,24 @@ body {
   color: var(--tp-text);
   background: var(--tp-surface-sunken);
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: "cv11", "ss01";
+}
+
+h1,
+h2,
+h3 {
+  letter-spacing: -0.015em;
+}
+
+::selection {
+  background: var(--tp-primary-tint);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--tp-border-strong) transparent;
 }
 
 #root {
@@ -45,8 +63,8 @@ a {
 }
 
 :focus-visible {
-  outline: 2px solid var(--tp-focus);
-  outline-offset: 1px;
+  outline: 2px solid var(--tp-primary);
+  outline-offset: 2px;
 }
 
 .tp-sr-only {
@@ -153,6 +171,17 @@ a {
   from {
     opacity: 0;
     transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes tp-pop {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.98);
   }
   to {
     opacity: 1;

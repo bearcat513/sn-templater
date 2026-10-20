@@ -15,7 +15,7 @@
   --tp-canvas: rgb(var(--now-color_background--tertiary, 232, 235, 237));
 
   /* Borders */
-  --tp-border: rgb(var(--now-container--border-color, 207, 213, 215));
+  --tp-border: rgba(var(--now-container--border-color, 207, 213, 215), 0.75);
   --tp-border-strong: rgb(var(--now-form-control-input--primary--border-color, 135, 147, 152));
 
   /* Text */
@@ -43,13 +43,19 @@
   --tp-positive: rgb(var(--now-color_alert--positive-3, 46, 125, 50));
   --tp-positive-bg: rgb(var(--now-alert--positive--background-color, 228, 244, 228));
 
-  /* Shape */
-  --tp-radius-sm: var(--now-static-border-radius--sm, 3px);
-  --tp-radius: var(--now-actionable--border-radius, 6px);
-  --tp-radius-lg: var(--now-container--border-radius, 10px);
-  --tp-shadow-sm: var(--now-static-drop-shadow--sm, 0 1px 2px rgba(0, 0, 0, 0.08));
-  --tp-shadow: var(--now-static-drop-shadow--md, 0 4px 14px rgba(0, 0, 0, 0.12));
-  --tp-shadow-lg: var(--now-static-drop-shadow--lg, 0 12px 40px rgba(0, 0, 0, 0.22));
+  /*
+   * Shape and elevation are the app's own, not Horizon's: rounder corners and
+   * soft, layered shadows. Colour still follows the instance theme.
+   */
+  --tp-radius-sm: 6px;
+  --tp-radius: 8px;
+  --tp-radius-lg: 14px;
+  --tp-shadow-xs: 0 1px 2px rgba(16, 24, 40, 0.06);
+  --tp-shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.05), 0 1px 3px rgba(16, 24, 40, 0.07);
+  --tp-shadow: 0 2px 4px -2px rgba(16, 24, 40, 0.06), 0 8px 20px -4px rgba(16, 24, 40, 0.1);
+  --tp-shadow-lg: 0 8px 16px -8px rgba(16, 24, 40, 0.12), 0 24px 56px -12px rgba(16, 24, 40, 0.24);
+  --tp-ring: 0 0 0 3px rgba(var(--now-actionable--primary--background-color, 0, 113, 143), 0.22);
+  --tp-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
 
   /* Spacing */
   --tp-space-1: var(--now-static-space--xs, 0.25rem);
@@ -60,15 +66,15 @@
   --tp-space-6: var(--now-static-space--xxl, 2rem);
 
   /* Type */
-  --tp-font: var(--now-font-family, "Lato", "Helvetica Neue", Arial, sans-serif);
+  --tp-font: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, var(--now-font-family, "Lato"), sans-serif;
   --tp-font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --tp-text-xs: 0.75rem;
   --tp-text-sm: 0.8125rem;
   --tp-text-md: 0.875rem;
   --tp-text-lg: 1.125rem;
-  --tp-text-xl: 1.5rem;
+  --tp-text-xl: 1.75rem;
 
-  --tp-header-height: 3.25rem;
+  --tp-header-height: 3.5rem;
 
   /* How much of the bottom of the window the developer tools dock takes (0 when closed). */
   --tp-devtools-inset: 0px;
