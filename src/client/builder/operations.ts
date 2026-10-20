@@ -1,4 +1,5 @@
 import {
+    CHART_LOOK_KEYS,
     cloneElement,
     cloneSlide,
     customKey,
@@ -342,7 +343,7 @@ const SHAPE_STYLE = ['fill', 'stroke', 'strokeWidth', 'size', 'color', 'bold', '
 const LINE_STYLE = ['stroke', 'strokeWidth', 'dashed', 'arrowStart', 'arrowEnd', 'opacity'] as const
 const IMAGE_STYLE = ['stroke', 'strokeWidth', 'opacity'] as const
 const TABLE_STYLE = ['size', 'color', 'family', 'align', 'header', 'headerFill', 'headerColor', 'banded', 'fill', 'border', 'opacity'] as const
-const CHART_STYLE = ['hideTitle', 'opacity'] as const
+const CHART_STYLE = [...CHART_LOOK_KEYS, 'opacity'] as const
 
 const STYLE_KEYS: Record<SlideElement['type'], readonly string[]> = {
     shape: SHAPE_STYLE,

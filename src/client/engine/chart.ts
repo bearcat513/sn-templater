@@ -296,6 +296,16 @@ export function chartPoints(spec: ChartTemplate, groups: ChartDatum[]): ChartDat
   return fold(spec, ordered);
 }
 
+/**
+ * A chart template's counted figures, drawn as another kind of the same
+ * shape: kept in the order they came and folded again for what the new kind
+ * can show — a column chart's twenty bars become a pie's eight slices.
+ */
+export function redrawAs(spec: ChartTemplate, chart: ChartKind, points: ChartDatum[]): ChartDatum[] {
+  if (chart === spec.chart || chartShape(chart) !== chartShape(spec.chart)) return points;
+  return chartPoints({ ...spec, chart, order: "field" }, points);
+}
+
 /** Past what the chart can show, the smallest figures become one "Other", or a line is cut short. */
 function fold(block: ChartLook, points: ChartDatum[]): ChartDatum[] {
   switch (chartShape(block.chart)) {
@@ -310,7 +320,11 @@ function fold(block: ChartLook, points: ChartDatum[]): ChartDatum[] {
   const usable = round || block.chart === "funnel" ? points.filter(point => point.value > 0) : points;
   const limit = round ? MAX_SLICES : MAX_BARS;
   if (usable.length <= limit) return usable;
-  const kept = [...usable].sort((a, b) => descending(Math.abs(a.value), Math.abs(b.value))).slice(0, limit - 1);
+  // An "Other" folded already, for a chart drawn as another kind, is folded again rather than kept beside a new one.
+  const kept = usable
+    .filter(point => point.color !== OTHER_COLOR)
+    .sort((a, b) => descending(Math.abs(a.value), Math.abs(b.value)))
+    .slice(0, limit - 1);
   const rest = usable.filter(point => !kept.includes(point));
   const other: ChartDatum = { label: "Other", value: rest.reduce((sum, point) => sum + point.value, 0), color: OTHER_COLOR };
   return [...usable.filter(point => kept.includes(point)), other];
@@ -1284,7 +1298,8 @@ function layoutGantt(block: ChartLook, points: ChartDatum[], width: number, heig
 
 /* ------------------------------ in a fixed box --------------------------- */
 
-const moved = (mark: ChartMark, dx: number, dy: number): ChartMark => {
+/** A mark shifted by (dx, dy). */
+export const movedMark = (mark: ChartMark, dx: number, dy: number): ChartMark => {
   switch (mark.kind) {
     case "shape":
     case "polyline":
@@ -1333,7 +1348,7 @@ export function layoutChartBox(
   const room = Math.max(40, height - top - bottom);
   let scene = layoutChart({ ...look, height: room }, data.points, width, style);
   if (scene.height > room) scene = layoutChart({ ...look, height: Math.max(40, room - (scene.height - room)) }, data.points, width, style);
-  marks.push(...scene.marks.map(mark => moved(mark, 0, top)));
+  marks.push(...scene.marks.map(mark => movedMark(mark, 0, top)));
   if (data.note) {
     marks.push({ kind: "text", x: 0, y: top + scene.height + 4, text: fit(data.note, width, style, small), size: small, color: style.mutedColor });
   }
@@ -1349,7 +1364,11 @@ export function drawChart(document: PdfDocument, scene: ChartScene, x: number, y
     switch (mark.kind) {
       case "shape":
         document.withOpacity(mark.opacity, () =>
-          document.drawPath(mark.points.map(at), { fill: mark.fill, stroke: mark.stroke, strokeWidth: mark.strokeWidth }),
+          document.drawPath(mark.points.map(at), {
+            fill: mark.fill === "none" ? undefined : mark.fill,
+            stroke: mark.stroke,
+            strokeWidth: mark.strokeWidth,
+          }),
         );
         break;
       case "polyline":

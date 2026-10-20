@@ -844,7 +844,10 @@ Templater.Slide.prototype = {
     /**
      * A chart template (sys_id, name or GlideRecord), drawn to fill its box: its
      * own records, grouping and look, counted each time the presentation opens.
-     * style: { x, y, w, h, hideTitle, opacity, rotation, link, build }
+     * style: { x, y, w, h, hideTitle, opacity, rotation, link, build } and, to
+     * change the template's look on this slide alone: chart (another kind of the
+     * same shape, e.g. 'bar' for a column chart), title, color, showValues,
+     * size (text, in points), fill and stroke (a card behind the chart), hideNote.
      * The box defaults to the area inside the margins.
      */
     chart: function (template, style) {
@@ -858,6 +861,14 @@ Templater.Slide.prototype = {
         element.template = record.getUniqueValue();
         element.name = String(record.getValue('name') || '').slice(0, 100);
         if (style.hideTitle) element.hideTitle = true;
+        if (style.chart) element.chart = String(style.chart);
+        if (style.title) element.title = String(style.title).slice(0, 200);
+        if (style.color) element.color = this._color(style.color);
+        if (typeof style.showValues === 'boolean') element.showValues = style.showValues;
+        if (style.size) element.size = Math.min(32, Math.max(6, this._number(style.size, 12)));
+        if (style.fill) element.fill = this._color(style.fill);
+        if (style.stroke) element.stroke = this._color(style.stroke);
+        if (style.hideNote) element.hideNote = true;
         return this._add(element);
     },
 

@@ -34,7 +34,7 @@
  */
 import { isEmbeddableImage } from "./image";
 import { FONT_FAMILIES, type FontFamily } from "./pdfFonts";
-import type { PdfPageSetup } from "./template";
+import { CHART_KINDS, type ChartKind, type PdfPageSetup } from "./template";
 
 /* --------------------------------- elements ------------------------------ */
 
@@ -200,7 +200,29 @@ export type ChartElement = ElementBox & {
   name?: string;
   /** Leave out the chart's title, when the slide has one of its own. */
   hideTitle?: boolean;
+  /*
+   * What this slide changes about the template's look. Each is absent for the
+   * template's own; none changes what is counted.
+   */
+  /** Drawn as another kind of the same shape — a column chart as a bar, a pie or a line. */
+  chart?: ChartKind;
+  /** The title in place of the template's. Tokens work, `{{list.count}}` too. */
+  title?: string;
+  /** The one series' colour. */
+  color?: string;
+  /** Each figure printed beside its mark, or not, whatever the template says. */
+  showValues?: boolean;
+  /** The chart's text size in points; absent is the slide's body size. */
+  size?: number;
+  /** A card behind the chart, inset from its edges, and its outline. */
+  fill?: string;
+  stroke?: string;
+  /** Leave out the sentence under a chart that shows less than every record. */
+  hideNote?: boolean;
 };
+
+/** The look a chart element can change, which the format painter carries from one chart to another. */
+export const CHART_LOOK_KEYS = ["hideTitle", "color", "showValues", "size", "fill", "stroke", "hideNote"] as const;
 
 export type SlideElement = ShapeElement | LineElement | ImageElement | TableElement | ChartElement;
 
@@ -435,11 +457,31 @@ function readElement(value: unknown): SlideElement | null {
         template,
         ...(name ? { name } : {}),
         ...(value.hideTitle === true ? { hideTitle: true } : {}),
+        ...readChartLook(value),
       };
     }
     default:
       return null;
   }
+}
+
+/** A chart element's own changes to its template's look — each one only if it reads. */
+function readChartLook(value: Record<string, unknown>): Partial<ChartElement> {
+  const chart = CHART_KINDS.find(entry => entry.kind === value.chart)?.kind;
+  const title = typeof value.title === "string" ? value.title.slice(0, 200) : undefined;
+  const color = optionalColor(value.color);
+  const fill = optionalColor(value.fill);
+  const stroke = optionalColor(value.stroke);
+  return {
+    ...(chart ? { chart } : {}),
+    ...(title?.trim() ? { title } : {}),
+    ...(color ? { color } : {}),
+    ...(typeof value.showValues === "boolean" ? { showValues: value.showValues } : {}),
+    ...(value.size !== undefined && value.size !== null ? { size: num(value.size, 12, 6, 32) } : {}),
+    ...(fill ? { fill } : {}),
+    ...(stroke ? { stroke } : {}),
+    ...(value.hideNote === true ? { hideNote: true } : {}),
+  };
 }
 
 function readSlide(value: unknown): CustomSlide | null {

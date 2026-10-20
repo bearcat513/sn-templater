@@ -1,8 +1,9 @@
 import React from 'react'
-import { useChartTemplates } from '../data/charts'
+import { useCharts, useChartTemplates } from '../data/charts'
 import { FONT_FAMILIES, type FontFamily } from '../engine/pdfFonts'
 import {
     BUILD_EFFECTS,
+    CHART_LOOK_KEYS,
     MAX_TABLE_COLUMNS,
     MAX_TABLE_ROWS,
     SHAPE_KINDS,
@@ -19,7 +20,9 @@ import {
     type TableElement,
     type Transition,
 } from '../engine/presentation'
+import { showValuesLabel } from '../designer/ChartFields'
 import { ImagePicker } from '../designer/ImagePicker'
+import { CHART_KINDS, chartShape, paletteChart, type ChartKind } from '../engine/template'
 import { Button, ColorField, Field, Input, NumberInput, Segmented, Select, Switch } from '../ui/controls'
 import { Icon } from '../ui/icons'
 import type { SlideEditor } from './editor'
@@ -638,50 +641,149 @@ function ImageProperties({ editor, element }: { editor: SlideEditor; element: Im
 }
 
 /**
- * A chart element: which chart template it shows, and whether its title does.
- * What the chart counts and how it looks belong to the template, so they are
- * changed there — once, for every slide and deck that shows it.
+ * A chart element: which chart template it shows, and how this slide shows
+ * it. What the chart counts belongs to the template, so it is changed there
+ * — once, for every slide and deck that shows it; its look can be changed
+ * here, for this slide alone, each choice falling back to the template's.
  */
 function ChartProperties({ editor, element }: { editor: SlideEditor; element: ChartElement }) {
     const templates = useChartTemplates()
+    const spec = useCharts([element.template])[element.template]?.spec
     const options = (templates.data ?? []).filter(chart => chart.active || chart.sysId === element.template)
     const known = options.some(chart => chart.sysId === element.template)
+    const patch = (changes: Partial<ChartElement>, merge?: string) => editor.patch(changes, merge)
+    const templateKind = spec?.chart
+    const kind = element.chart ?? templateKind
+    const kindLabel = (chart: ChartKind | undefined) => CHART_KINDS.find(entry => entry.kind === chart)?.label ?? 'Template’s'
+    const kinds = templateKind ? CHART_KINDS.filter(entry => chartShape(entry.kind) === chartShape(templateKind)) : []
+    const tri = (value: boolean | undefined): 'template' | 'on' | 'off' => (value === undefined ? 'template' : value ? 'on' : 'off')
     return (
-        <Section title="Chart">
-            <Field
-                label="Chart template"
-                hint="The chart counts its own table with its own filter whenever the presentation opens."
-            >
-                <Select<string>
-                    value={element.template}
-                    options={[
-                        ...(known ? [] : [{ value: element.template, label: element.name ?? 'This chart' }]),
-                        ...options.map(chart => ({ value: chart.sysId, label: `${chart.name} · ${chart.tableLabel || chart.table}` })),
-                    ]}
-                    onChange={sysId => {
-                        const chart = options.find(entry => entry.sysId === sysId)
-                        if (chart) editor.patch({ template: chart.sysId, name: chart.name })
-                    }}
-                    aria-label="Chart template"
-                />
-            </Field>
-            <Switch
-                checked={!element.hideTitle}
-                onChange={show => editor.patch({ hideTitle: show ? undefined : true })}
-                label="Show the chart’s title"
-            />
-            <div>
-                <a
-                    className="tp-btn tp-btn--ghost tp-btn--sm"
-                    href={`${window.location.pathname}?view=edit&id=${encodeURIComponent(element.template)}`}
-                    target="_blank"
-                    rel="noreferrer"
+        <>
+            <Section title="Chart">
+                <Field
+                    label="Chart template"
+                    hint="The chart counts its own table with its own filter whenever the presentation opens."
                 >
-                    <Icon name="external" size={14} />
-                    <span>Edit the chart template</span>
-                </a>
-            </div>
-        </Section>
+                    <Select<string>
+                        value={element.template}
+                        options={[
+                            ...(known ? [] : [{ value: element.template, label: element.name ?? 'This chart' }]),
+                            ...options.map(chart => ({ value: chart.sysId, label: `${chart.name} · ${chart.tableLabel || chart.table}` })),
+                        ]}
+                        onChange={sysId => {
+                            const chart = options.find(entry => entry.sysId === sysId)
+                            // A kind that suits one template may not suit the next.
+                            if (chart) patch({ template: chart.sysId, name: chart.name, chart: undefined })
+                        }}
+                        aria-label="Chart template"
+                    />
+                </Field>
+                <div>
+                    <a
+                        className="tp-btn tp-btn--ghost tp-btn--sm"
+                        href={`${window.location.pathname}?view=edit&id=${encodeURIComponent(element.template)}`}
+                        target="_blank"
+                        rel="noreferrer"
+                    >
+                        <Icon name="external" size={14} />
+                        <span>Edit the chart template</span>
+                    </a>
+                </div>
+            </Section>
+            <Section title="On this slide">
+                <Field label="Draw as" hint={kinds.length > 1 ? 'The same figures, as another kind of chart.' : undefined}>
+                    <Select<ChartKind | 'template'>
+                        value={element.chart ?? 'template'}
+                        options={[
+                            { value: 'template', label: `Template’s (${kindLabel(templateKind)})` },
+                            ...kinds.filter(entry => entry.kind !== templateKind).map(entry => ({ value: entry.kind, label: entry.label })),
+                        ]}
+                        onChange={chart => patch({ chart: chart === 'template' ? undefined : chart })}
+                        aria-label="Draw as"
+                    />
+                </Field>
+                <Switch
+                    checked={!element.hideTitle}
+                    onChange={show => patch({ hideTitle: show ? undefined : true })}
+                    label="Show the chart’s title"
+                />
+                {!element.hideTitle && (
+                    <Field label="Title" hint="Empty uses the template’s. {{list.count}} is how many records were counted.">
+                        <Input
+                            value={element.title ?? ''}
+                            placeholder={spec?.title || 'Template’s title'}
+                            maxLength={200}
+                            onChange={event => patch({ title: event.target.value.trim() ? event.target.value : undefined }, 'chart-title')}
+                        />
+                    </Field>
+                )}
+                <Field label={kind ? showValuesLabel(kind) : 'Show figures'}>
+                    <Select<'template' | 'on' | 'off'>
+                        value={tri(element.showValues)}
+                        options={[
+                            { value: 'template', label: `Template’s (${spec?.showValues ? 'shown' : 'hidden'})` },
+                            { value: 'on', label: 'Shown' },
+                            { value: 'off', label: 'Hidden' },
+                        ]}
+                        onChange={value => patch({ showValues: value === 'template' ? undefined : value === 'on' })}
+                        aria-label="Show figures"
+                    />
+                </Field>
+                <div className="tp-grid tp-grid--2">
+                    {!(kind && paletteChart(kind)) && (
+                        <ColorField
+                            label="Colour"
+                            allowEmpty
+                            hint="Empty is the template’s."
+                            value={element.color ?? ''}
+                            onChange={color => patch({ color: color || undefined }, 'chart-color')}
+                        />
+                    )}
+                    <Field label="Text size (pt)" hint="Empty is the slide’s.">
+                        <NumberInput
+                            min={6}
+                            max={32}
+                            value={element.size}
+                            placeholder="–"
+                            onChange={size => patch({ size: size === undefined ? undefined : Math.min(32, Math.max(6, size)) }, 'chart-size')}
+                            aria-label="Chart text size"
+                        />
+                    </Field>
+                </div>
+                <div className="tp-grid tp-grid--2">
+                    <ColorField
+                        label="Card"
+                        allowEmpty
+                        value={element.fill ?? ''}
+                        onChange={fill => patch({ fill: fill || undefined }, 'chart-fill')}
+                    />
+                    <ColorField
+                        label="Card outline"
+                        allowEmpty
+                        value={element.stroke ?? ''}
+                        onChange={stroke => patch({ stroke: stroke || undefined }, 'chart-stroke')}
+                    />
+                </div>
+                <Switch
+                    checked={!element.hideNote}
+                    onChange={show => patch({ hideNote: show ? undefined : true })}
+                    label="Say when only some records were counted"
+                />
+                <div>
+                    <Button
+                        size="sm"
+                        variant="ghost"
+                        icon="undo"
+                        disabled={CHART_LOOK_KEYS.every(key => element[key] === undefined) && !element.chart && !element.title}
+                        onClick={() =>
+                            patch({ chart: undefined, title: undefined, ...Object.fromEntries(CHART_LOOK_KEYS.map(key => [key, undefined])) })
+                        }
+                    >
+                        Back to the template’s look
+                    </Button>
+                </div>
+            </Section>
+        </>
     )
 }
 

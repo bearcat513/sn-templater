@@ -7,11 +7,12 @@
  * a shape's text sits, how far in from its edge, where an arrowhead points —
  * so the exported page and the slide on screen put things in the same place.
  */
-import { layoutChartBox, drawChart, type ChartData, type ChartScene, type ChartStyle, type LoadedChart } from "./chart";
+import { layoutChartBox, drawChart, movedMark, redrawAs, type ChartData, type ChartMark, type ChartScene, type ChartStyle, type LoadedChart } from "./chart";
 import type { EmbeddableImage } from "./image";
 import { safeUrl } from "./links";
 import type { PdfDocument } from "./pdf";
 import { measureText, wrapText, type FontFamily, type FontStyle } from "./pdfFonts";
+import { chartShape } from "./template";
 import { TOKEN_PATTERN } from "./tokens";
 import type { ChartElement, CustomSlide, LineElement, ShapeElement, ShapeKind, SlideElement, TableElement } from "./presentation";
 
@@ -261,40 +262,87 @@ const lineOffset = (lineHeight: number): number => (lineHeight - 1.117) / 2 + 0.
 
 /* ---------------------------------- charts -------------------------------- */
 
+/** How far a chart is inset from the edge of its card. */
+const CHART_CARD_PADDING = 12;
+
 /**
  * A chart element, laid out to its box: the chart template's title, plot and
  * note, or — before the chart has loaded, or once its template is gone — a
- * line saying so, so a hole in a slide is never silent.
+ * line saying so, so a hole in a slide is never silent. What the element
+ * changes about the template's look is applied over it, and a card, when it
+ * has one, is drawn behind and the chart inset within it.
  */
 export function chartElementScene(
-  element: Pick<ChartElement, "template" | "name" | "hideTitle" | "w" | "h">,
+  element: Pick<
+    ChartElement,
+    "template" | "name" | "hideTitle" | "w" | "h" | "chart" | "title" | "color" | "showValues" | "size" | "fill" | "stroke" | "hideNote"
+  >,
   charts: Record<string, LoadedChart>,
   style: ChartStyle,
   fill: (text: string) => string,
+): ChartScene {
+  const card = Boolean(element.fill || element.stroke);
+  const inset = card ? CHART_CARD_PADDING : 0;
+  const width = Math.max(1, element.w - inset * 2);
+  const height = Math.max(1, element.h - inset * 2);
+  const ink: ChartStyle = {
+    ...style,
+    ...(element.size ? { fontSize: element.size } : {}),
+    ...(element.fill ? { surface: element.fill } : {}),
+  };
+  const scene = chartInBox(element, charts, ink, fill, width, height);
+  if (!card) return scene;
+  const backdrop: ChartMark = {
+    kind: "shape",
+    points: [
+      [0, 0],
+      [element.w, 0],
+      [element.w, element.h],
+      [0, element.h],
+    ],
+    fill: element.fill ?? "none",
+    ...(element.stroke ? { stroke: element.stroke, strokeWidth: 1 } : {}),
+  };
+  return {
+    width: element.w,
+    height: Math.max(element.h, scene.height + inset * 2),
+    marks: [backdrop, ...scene.marks.map(mark => movedMark(mark, inset, inset))],
+  };
+}
+
+function chartInBox(
+  element: Parameters<typeof chartElementScene>[0],
+  charts: Record<string, LoadedChart>,
+  style: ChartStyle,
+  fill: (text: string) => string,
+  width: number,
+  height: number,
 ): ChartScene {
   const loaded = charts[element.template];
   if (!loaded || loaded.error) {
     const name = loaded?.name || element.name;
     const what = name ? `“${name}”` : "the chart";
     const why = !loaded ? `Counting ${what}…` : `${name ? what : "The chart"} could not be drawn: ${loaded.error}`;
-    return layoutChartBox(
-      { chart: "column", height: element.h },
-      { points: [] },
-      { emptyText: why },
-      element.w,
-      element.h,
-      style,
-    );
+    return layoutChartBox({ chart: "column", height }, { points: [] }, { emptyText: why }, width, height, style);
   }
-  const data: ChartData = { points: loaded.points, count: loaded.total, ...(loaded.note ? { note: loaded.note } : {}) };
+  const { spec } = loaded;
+  const kind = element.chart && chartShape(element.chart) === chartShape(spec.chart) ? element.chart : spec.chart;
+  const look = {
+    ...spec,
+    chart: kind,
+    ...(element.color ? { color: element.color } : {}),
+    ...(element.showValues !== undefined ? { showValues: element.showValues } : {}),
+  };
+  const note = element.hideNote ? undefined : loaded.note;
+  const data: ChartData = { points: redrawAs(spec, kind, loaded.points), count: loaded.total, ...(note ? { note } : {}) };
   const extra = { "list.count": String(loaded.total) };
   const words = (text: string | undefined) => (text ? fillWith(fill, text, extra) : undefined);
   return layoutChartBox(
-    loaded.spec,
+    look,
     data,
-    { title: element.hideTitle ? undefined : words(loaded.spec.title), emptyText: words(loaded.spec.emptyText) },
-    element.w,
-    element.h,
+    { title: element.hideTitle ? undefined : words(element.title || spec.title), emptyText: words(spec.emptyText) },
+    width,
+    height,
     style,
   );
 }
