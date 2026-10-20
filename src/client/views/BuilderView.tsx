@@ -8,7 +8,10 @@ import {
     deleteSlide,
     distribute,
     duplicateSlide,
+    hideSection,
+    insertSection,
     insertSlide,
+    moveSection,
     moveSlide,
     newChart,
     newCodeBox,
@@ -20,9 +23,11 @@ import {
     offsetCopies,
     patchElements,
     removeElements,
+    removeSection,
     setHidden,
     styleFor,
     styleOf,
+    updateSection,
     updateSlide,
     type CopiedStyle,
 } from '../builder/operations'
@@ -30,8 +35,20 @@ import { Ribbon } from '../builder/Ribbon'
 import { SlideCanvas } from '../builder/SlideCanvas'
 import { SlideSorter } from '../builder/SlideSorter'
 import { useHistory } from '../builder/useHistory'
-import { useCharts, withCharts } from '../data/charts'
-import { canChangePresentation, loadDeck, sourceOf, type DeckSource, type LoadedDeck } from '../data/deck'
+import { useCharts } from '../data/charts'
+import {
+    assemble,
+    canChangePresentation,
+    frameOf,
+    loadDeck,
+    loadSection,
+    recordLink,
+    sectionSignature,
+    sourceOf,
+    type DeckSource,
+    type LoadedDeck,
+    type LoadedSection,
+} from '../data/deck'
 import { useSession } from '../data/session'
 import { describeError, log, useInspect } from '../debug/log'
 import { decodeImage } from '../engine/image'
@@ -44,15 +61,21 @@ import {
     MAX_ELEMENTS,
     MAX_NOTES_LENGTH,
     MAX_PRESENTATION_BODY_LENGTH,
+    MAX_SECTION_RECORDS,
+    MAX_SECTIONS,
     applyTransitionToAll,
     customKey,
     layoutSlide,
+    newId,
     orderOf,
     presentationChartIds,
     readPresentation,
+    sectionKey,
+    sectionOf,
     serializePresentation,
     withSlideOptions,
     type CustomSlide,
+    type DeckSection,
     type PresentationBody,
     type SlideElement,
     type SlideLayout,
@@ -65,11 +88,11 @@ import { downloadBytes } from '../hooks/usePdf'
 import { replaceUrl, setPageTitle, type Navigate } from '../hooks/useRoute'
 import { PresentationService, type PresentationRecord } from '../services/presentations'
 import { SchemaService } from '../services/schema'
-import { TemplateService } from '../services/templates'
-import { arrange, paginate, shown, type Slide } from '../slides/paginate'
+import { TemplateService, type TemplateRecord } from '../services/templates'
+import { arrange, shown, type Slide } from '../slides/paginate'
 import { Presenter } from '../slides/Presenter'
 import { SlideView } from '../slides/SlideView'
-import { Badge, Button, EmptyState, Field, Input, Notice, Spinner, Textarea } from '../ui/controls'
+import { Badge, Button, EmptyState, Field, Input, Notice, Spinner, Switch, Textarea } from '../ui/controls'
 import { ConfirmModal, Menu, Modal, useToast } from '../ui/overlays'
 import { SelectionForm, TemplateChooser, type Selection } from './common'
 
@@ -102,7 +125,9 @@ const isTyping = (target: EventTarget | null) => {
  * saved as a presentation to open and present again.
  *
  * `?view=build&id=…` opens a saved presentation; `?view=build&template=…`
- * (with `query`, `order`, `limit` and `title`) starts a new one on a deck.
+ * (with `query`, `order`, `limit` and `title`) starts a new one on a deck;
+ * `?view=build` alone starts a blank one, from a title slide. Any of them
+ * can place templates' slides in sections of their own, anywhere.
  */
 export function BuilderView({ params, navigate }: { params: URLSearchParams; navigate: Navigate }) {
     const session = useSession()
@@ -127,6 +152,9 @@ export function BuilderView({ params, navigate }: { params: URLSearchParams; nav
     const [saveError, setSaveError] = useState('')
     const [painter, setPainter] = useState<CopiedStyle | null>(null)
     const [notesOpen, setNotesOpen] = useState(true)
+    const [sectionDecks, setSectionDecks] = useState<Record<string, LoadedSection>>({})
+    /** The section dialog: placing a template at a gap, or changing a placed one. */
+    const [sectionDialog, setSectionDialog] = useState<{ at: number } | { id: string } | null>(null)
     const imageInput = useRef<HTMLInputElement>(null)
 
     /* -------------------------------- loading ------------------------------- */
@@ -182,16 +210,19 @@ export function BuilderView({ params, navigate }: { params: URLSearchParams; nav
                     orderBy: params.get('order') ?? '',
                     limit: Number(params.get('limit')) || 20,
                 }
+                // Built from nothing: a title slide to start on, as PowerPoint opens.
+                if (!templateId) {
+                    const frame = frameOf(null)
+                    const first = layoutSlide('title', { ...pageDimensions(frame.page.size, frame.page.landscape), page: resolvePage(frame) })
+                    nextBody = { ...EMPTY_BODY, slides: [first], order: [{ key: customKey(first.id) }] }
+                }
                 setPageTitle('New presentation')
             }
             setMeta(nextMeta)
             history.reset(nextBody)
             setSaved(savedAs(nextMeta, nextBody))
             if (nextMeta.templateId) await openDeck(nextMeta)
-            else {
-                setOpening('')
-                setSettingsOpen(true)
-            }
+            else setOpening('')
         })().catch(failure => live && setLoadError(failure instanceof Error ? failure.message : String(failure)))
         return () => {
             live = false
@@ -201,11 +232,50 @@ export function BuilderView({ params, navigate }: { params: URLSearchParams; nav
 
     /* ------------------------------- the slides ----------------------------- */
 
+    /*
+     * Templates placed as sections are read as they are placed or changed —
+     * each on its own, so changing one section's filter reads only it — and
+     * keep showing what they had until the new records arrive.
+     */
+    const sections = body.sections
+    const loadingSections = useRef(new Map<string, string>())
+    useEffect(() => {
+        for (const section of sections ?? []) {
+            const signature = sectionSignature(section)
+            if (sectionDecks[section.id]?.signature === signature || loadingSections.current.get(section.id) === signature) continue
+            loadingSections.current.set(section.id, signature)
+            void loadSection(section, session).then(loaded => {
+                if (loadingSections.current.get(section.id) !== signature) return
+                loadingSections.current.delete(section.id)
+                if (loaded.error) log.warn('builder', `Section “${section.name ?? section.template}”: ${loaded.error}`, section)
+                // A section that fails to reload keeps the slides it had, with the error beside them.
+                setSectionDecks(current => ({
+                    ...current,
+                    [section.id]: loaded.deck ? loaded : { ...current[section.id], signature, error: loaded.error },
+                }))
+            })
+        }
+        // `sectionDecks` is read, not watched: what has arrived is not a reason to read again.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [sections, session])
+    // On opening, the builder waits for every section, so nothing is arranged without them.
+    const opened = useRef(false)
+    if (meta && !(sections ?? []).some(section => !sectionDecks[section.id])) opened.current = true
+    const sectionsPending = !opened.current
+
+    // A deck built on a template waits for it; one built from nothing is ready as it is.
+    const ready = Boolean(meta) && (!meta?.templateId || Boolean(deck))
+    const deckTitle = meta ? meta.title || meta.name : ''
+
     // Charts placed on custom slides are counted as they are placed, and join the deck's own.
     const charts = useCharts(useMemo(() => presentationChartIds(body), [body]))
-    const job = useMemo(() => (deck ? withCharts(deck.job, charts) : null), [deck, charts])
-    const generated = useMemo(() => (deck && job ? paginate(deck.template, job) : []), [deck, job])
-    const slides = useMemo(() => (job ? arrange(generated, job, body) : []), [job, generated, body])
+    const assembled = useMemo(
+        () => (ready ? assemble(deck, deckTitle, session, sections ?? [], sectionDecks, charts) : null),
+        [ready, deck, deckTitle, session, sections, sectionDecks, charts]
+    )
+    const frame = assembled?.frame ?? null
+    const job = assembled?.job ?? null
+    const slides = useMemo(() => (assembled ? arrange(assembled.generated, assembled.job, body) : []), [assembled, body])
     const visible = useMemo(() => shown(slides), [slides])
 
     useEffect(() => {
@@ -215,11 +285,13 @@ export function BuilderView({ params, navigate }: { params: URLSearchParams; nav
     const index = slides.findIndex(slide => slide.key === current)
     const slide: Slide | undefined = slides[index]
     const custom = slide?.custom
+    const marker = slide?.marker
+    const markerDeck = marker ? sectionDecks[marker.id] : undefined
 
-    const page = deck ? resolvePage(deck.template) : null
+    const page = frame ? resolvePage(frame) : null
     const dims = page ? pageDimensions(page.size, page.landscape) : { width: 960, height: 540 }
-    // The page is the deck's, so the deck is the dependency.
-    const sheet = useMemo(() => (page ? { ...dims, page } : null), [deck])
+    // The page is the frame's, so the frame is the dependency.
+    const sheet = useMemo(() => (page ? { ...dims, page } : null), [frame])
 
     const choose = (key: string) => {
         setCurrent(key)
@@ -247,6 +319,37 @@ export function BuilderView({ params, navigate }: { params: URLSearchParams; nav
         const made = layoutSlide(layout, sheet)
         history.set(currentBody => insertSlide(currentBody, slides, at, made))
         choose(customKey(made.id))
+    }
+
+    /* --------------------------------- sections ----------------------------- */
+
+    const openSectionDialog = (at: number) => {
+        if ((sections ?? []).length >= MAX_SECTIONS) {
+            toast(`A presentation can place at most ${MAX_SECTIONS} templates.`, 'critical')
+            return
+        }
+        setSectionDialog({ at })
+    }
+
+    const applySection = (draft: SectionDraft) => {
+        const dialog = sectionDialog
+        setSectionDialog(null)
+        if (!dialog) return
+        if ('id' in dialog) {
+            history.set(currentBody => updateSection(currentBody, dialog.id, draft))
+            return
+        }
+        const section: DeckSection = { id: newId(), ...draft }
+        history.set(currentBody => insertSection(currentBody, slides, dialog.at, section))
+        choose(sectionKey(section.id))
+    }
+
+    const dropSection = (id: string) => {
+        if (sectionOf(current) === id) {
+            const next = slides.find((entry, at) => at > index && sectionOf(entry.key) !== id) ?? slides.find(entry => sectionOf(entry.key) !== id)
+            choose(next?.key ?? '')
+        }
+        history.set(currentBody => removeSection(currentBody, slides, id))
     }
 
     const changeSlide = useCallback(
@@ -340,7 +443,7 @@ export function BuilderView({ params, navigate }: { params: URLSearchParams; nav
     /* --------------------------- notes and transitions ---------------------- */
 
     const slideOptions = slide ? body.options?.[slide.key] : undefined
-    const transition: TransitionControl | null = slide
+    const transition: TransitionControl | null = slide && !slide.marker
         ? {
               value: slideOptions?.transition,
               deck: body.transition ?? DEFAULT_TRANSITION,
@@ -363,11 +466,7 @@ export function BuilderView({ params, navigate }: { params: URLSearchParams; nav
 
     const save = useCallback(
         async (asCopy = false) => {
-            if (!meta || saving) return
-            if (!meta.templateId) {
-                setSettingsOpen(true)
-                return
-            }
+            if (!meta || saving || !assembled) return
             const name = meta.name.trim() || meta.title.trim() || deck?.record.name || 'Untitled presentation'
             // The order as the author saw it, record slides placed by the arrangement included.
             const text = serializePresentation({ ...body, order: orderOf(slides) })
@@ -411,7 +510,7 @@ export function BuilderView({ params, navigate }: { params: URLSearchParams; nav
                 setSaving(false)
             }
         },
-        [meta, saving, deck, body, slides, record, canChange, toast]
+        [meta, saving, assembled, deck, body, slides, record, canChange, toast]
     )
 
     const remove = async () => {
@@ -444,18 +543,20 @@ export function BuilderView({ params, navigate }: { params: URLSearchParams; nav
     /* ------------------------------ presenting ------------------------------ */
 
     const present = (fromCurrent: boolean) => {
-        const at = fromCurrent && slide && !slide.hidden ? visible.findIndex(entry => entry.key === slide.key) : 0
+        // From a section's header, its first slide shown.
+        const from = fromCurrent && slide ? slides.slice(index).find(entry => !entry.hidden && !entry.marker) : undefined
+        const at = from ? visible.findIndex(entry => entry.key === from.key) : 0
         setEditing(null)
         setPresenting(Math.max(0, at))
     }
 
     const exportPdf = () => {
-        if (!deck || !meta) return
+        if (!frame || !job || !meta) return
         try {
             const drawn = log.time('render', `Presentation PDF drawn for “${meta.name}”`)
-            const result = renderPdfSlides(deck.template, job ?? deck.job, visible)
+            const result = renderPdfSlides(frame, job, visible)
             drawn({ pages: result.pageCount, bytes: result.bytes.length, problems: result.problems })
-            downloadBytes(result.bytes, documentFileName(meta.name || meta.title || deck.record.name, 'presentation'))
+            downloadBytes(result.bytes, documentFileName(meta.name || meta.title || deck?.record.name || 'Presentation', 'presentation'))
             if (result.problems.length) toast(result.problems[0]!, 'info')
         } catch (failure) {
             toast(failure instanceof Error ? failure.message : 'The presentation could not be exported.', 'critical')
@@ -594,11 +695,11 @@ export function BuilderView({ params, navigate }: { params: URLSearchParams; nav
         )
     }
 
-    if (presenting !== null && deck) {
+    if (presenting !== null && frame && job) {
         return (
             <Presenter
-                template={deck.template}
-                job={job ?? deck.job}
+                template={frame}
+                job={job}
                 title={meta.name || meta.title}
                 slides={visible}
                 startAt={presenting}
@@ -609,16 +710,27 @@ export function BuilderView({ params, navigate }: { params: URLSearchParams; nav
                 onExport={exportPdf}
                 onEdit={() => setPresenting(null)}
                 editLabel="Back to the builder"
-                recordUrl={owner => {
-                    const sysId = deck.job.records[owner]?.values['raw.sys_id']
-                    return sysId ? `/${deck.schema.name}.do?sys_id=${encodeURIComponent(sysId)}` : null
-                }}
+                recordUrl={recordLink}
             />
         )
     }
 
     const shownNumber = slide && !slide.hidden ? visible.findIndex(entry => entry.key === slide.key) + 1 : 0
-    const ownerId = slide && slide.owner >= 0 ? deck?.job.records[slide.owner]?.values['raw.sys_id'] : undefined
+    const slideCount = slides.filter(entry => !entry.marker).length
+    // New slides go after the current one — after the whole section, when that is a section's header.
+    const nextGap = marker ? slides.reduce((at, entry, position) => (sectionOf(entry.key) === marker.id ? position + 1 : at), index + 1) : index + 1
+    const ownerLink = slide ? recordLink(slide) : null
+    /** The template a generated slide comes from: a section's, or the deck's. */
+    const slideSection = slide && !custom ? (sections ?? []).find(section => section.id === sectionOf(slide.key)) : undefined
+    const sectionNotices = (sections ?? []).flatMap(section => {
+        const loaded = sectionDecks[section.id]
+        const name = loaded?.deck?.record.name ?? section.name ?? 'A template'
+        if (loaded?.error) return [`“${name}” could not be loaded: ${loaded.error}`]
+        const shownCount = loaded?.deck?.job.records.length ?? 0
+        if (loaded?.deck && loaded.deck.matched > shownCount)
+            return [`“${name}”: ${loaded.deck.matched.toLocaleString()} records match; the first ${shownCount} have slides.`]
+        return []
+    })
 
     return (
         <div className="tp-builder">
@@ -635,9 +747,12 @@ export function BuilderView({ params, navigate }: { params: URLSearchParams; nav
                         onChange={event => setMeta({ ...meta, name: event.target.value })}
                         aria-label="Presentation name"
                     />
-                    {deck && (
+                    {(deck || !meta.templateId) && (
                         <span className="tp-subtle tp-truncate">
-                            {deck.record.name} · {deck.job.records.length} record{deck.job.records.length === 1 ? '' : 's'}
+                            {deck
+                                ? `${deck.record.name} · ${deck.job.records.length} record${deck.job.records.length === 1 ? '' : 's'}`
+                                : 'Blank deck'}
+                            {sections?.length ? ` · ${sections.length} template${sections.length === 1 ? '' : 's'} placed` : ''}
                         </span>
                     )}
                     {!record && <Badge tone="primary">New</Badge>}
@@ -653,17 +768,17 @@ export function BuilderView({ params, navigate }: { params: URLSearchParams; nav
                     <Button icon="settings" onClick={() => setSettingsOpen(true)}>
                         Deck and records
                     </Button>
-                    <Button icon="play" disabled={!deck || !visible.length} onClick={() => present(false)} title="Present from the start (F5)">
+                    <Button icon="play" disabled={!assembled || !visible.length} onClick={() => present(false)} title="Present from the start (F5)">
                         Present
                     </Button>
-                    <Button icon="download" disabled={!deck} onClick={exportPdf}>
+                    <Button icon="download" disabled={!assembled} onClick={exportPdf}>
                         PDF
                     </Button>
                     <Button
                         variant="primary"
                         icon="save"
                         busy={saving}
-                        disabled={!deck || (Boolean(record) && canChange && !dirty)}
+                        disabled={!assembled || (Boolean(record) && canChange && !dirty)}
                         onClick={() => void save(Boolean(record) && !canChange)}
                     >
                         {record && !canChange ? 'Save a copy' : 'Save'}
@@ -671,8 +786,8 @@ export function BuilderView({ params, navigate }: { params: URLSearchParams; nav
                     <Menu
                         label="Presentation actions"
                         items={[
-                            { label: 'Present from this slide', icon: 'play', disabled: !deck || !slide || slide.hidden === true, onSelect: () => present(true) },
-                            { label: 'Save a copy', icon: 'copy', disabled: !deck || !record, onSelect: () => void save(true) },
+                            { label: 'Present from this slide', icon: 'play', disabled: !assembled || !slide || slide.hidden === true, onSelect: () => present(true) },
+                            { label: 'Save a copy', icon: 'copy', disabled: !assembled || !record, onSelect: () => void save(true) },
                             ...(deck
                                 ? [
                                       {
@@ -711,27 +826,26 @@ export function BuilderView({ params, navigate }: { params: URLSearchParams; nav
                         ]}
                     />
                 )}
+                <Notice kind="info" lines={sectionNotices} />
             </div>
 
-            {!deck ? (
+            {!assembled || !frame || sectionsPending ? (
                 <div className="tp-page tp-page--narrow">
-                    {opening ? (
+                    {opening || (assembled && sectionsPending) ? (
                         <div className="tp-loading">
-                            <Spinner /> {opening}
+                            <Spinner /> {opening || 'Reading the templates’ records…'}
                         </div>
                     ) : (
                         <EmptyState
                             icon="slides"
-                            title={meta.templateId ? 'The deck is not loaded' : 'Choose a deck'}
+                            title="The deck is not loaded"
                             action={
                                 <Button variant="primary" icon="settings" onClick={() => setSettingsOpen(true)}>
                                     Choose the deck and records
                                 </Button>
                             }
                         >
-                            {meta.templateId
-                                ? 'Its records could not be read. Check the deck and its filter.'
-                                : 'A presentation is built on a deck template. Its custom slides are kept whichever deck it uses.'}
+                            Its records could not be read. Check the deck and its filter, or build the presentation without a deck.
                         </EmptyState>
                     )}
                 </div>
@@ -740,7 +854,7 @@ export function BuilderView({ params, navigate }: { params: URLSearchParams; nav
                     <aside className="tp-builder__sorter">
                         <div className="tp-builder__sorter-head">
                             <span>
-                                {visible.length} of {slides.length} slide{slides.length === 1 ? '' : 's'} shown
+                                {visible.length} of {slideCount} slide{slideCount === 1 ? '' : 's'} shown
                             </span>
                             <Menu
                                 label="New slide"
@@ -756,12 +870,13 @@ export function BuilderView({ params, navigate }: { params: URLSearchParams; nav
                                             ['titleOnly', 'Title only'],
                                             ['blank', 'Blank'],
                                         ] as const
-                                    ).map(([layout, label]) => ({ label, onSelect: () => insert(index + 1, layout) })),
+                                    ).map(([layout, label]) => ({ label, onSelect: () => insert(nextGap, layout) })),
+                                    { label: 'A template’s slides…', icon: 'layers' as const, onSelect: () => openSectionDialog(nextGap) },
                                 ]}
                             />
                         </div>
                         <SlideSorter
-                            template={deck.template}
+                            template={frame}
                             slides={slides}
                             current={current}
                             onSelect={choose}
@@ -778,6 +893,10 @@ export function BuilderView({ params, navigate }: { params: URLSearchParams; nav
                                 history.set(currentBody => deleteSlide(currentBody, slides, key))
                                 if (key === current) choose(next)
                             }}
+                            onInsertSection={openSectionDialog}
+                            onMoveSection={(id, gap) => history.set(currentBody => moveSection(currentBody, slides, id, gap))}
+                            onHideSection={(id, hidden) => history.set(currentBody => hideSection(currentBody, slides, id, hidden))}
+                            onRemoveSection={dropSection}
                         />
                     </aside>
 
@@ -785,9 +904,17 @@ export function BuilderView({ params, navigate }: { params: URLSearchParams; nav
                         {editor && <Ribbon editor={editor} />}
                         <Fit aspect={dims.width / dims.height}>
                             {canvasWidth =>
-                                !slide ? null : custom && sheet ? (
+                                !slide ? null : marker ? (
+                                    <SectionSummary
+                                        width={canvasWidth}
+                                        aspect={dims.width / dims.height}
+                                        name={slide.label}
+                                        loaded={markerDeck}
+                                        count={slides.filter(entry => !entry.marker && sectionOf(entry.key) === marker.id).length}
+                                    />
+                                ) : custom && sheet ? (
                                     <SlideCanvas
-                                        template={deck.template}
+                                        template={frame}
                                         slide={slide as Slide & { custom: CustomSlide }}
                                         sheet={sheet}
                                         width={canvasWidth}
@@ -806,12 +933,12 @@ export function BuilderView({ params, navigate }: { params: URLSearchParams; nav
                                     />
                                 ) : (
                                     <div className="tp-builder__locked">
-                                        <SlideView template={deck.template} slide={slide} width={canvasWidth} />
+                                        <SlideView template={frame} slide={slide} width={canvasWidth} />
                                     </div>
                                 )
                             }
                         </Fit>
-                        {slide && notesOpen && (
+                        {slide && !marker && notesOpen && (
                             <div className="tp-builder__notes">
                                 <Textarea
                                     key={slide.key}
@@ -826,7 +953,7 @@ export function BuilderView({ params, navigate }: { params: URLSearchParams; nav
                         )}
                         <footer className="tp-builder__status">
                             <span>
-                                {slide?.hidden ? 'Hidden slide' : `Slide ${shownNumber} of ${visible.length}`}
+                                {marker ? 'Section' : slide?.hidden ? 'Hidden slide' : `Slide ${shownNumber} of ${visible.length}`}
                                 {slide ? ` · ${slide.label}` : ''}
                             </span>
                             {painter && <Badge tone="primary">Format painter — click an element, Esc to stop</Badge>}
@@ -851,14 +978,28 @@ export function BuilderView({ params, navigate }: { params: URLSearchParams; nav
                     <aside className="tp-builder__inspector">
                         {editor && transition ? (
                             <Inspector editor={editor} transition={transition} />
+                        ) : marker ? (
+                            <SectionInspector
+                                section={marker}
+                                name={slide!.label}
+                                loaded={markerDeck}
+                                slides={slides.filter(entry => !entry.marker && sectionOf(entry.key) === marker.id)}
+                                onRename={name => history.set(currentBody => updateSection(currentBody, marker.id, { name }), `section:${marker.id}`)}
+                                onChange={() => setSectionDialog({ id: marker.id })}
+                                onHide={hidden => history.set(currentBody => hideSection(currentBody, slides, marker.id, hidden))}
+                                onRemove={() => dropSection(marker.id)}
+                                onEditTemplate={() => guarded(() => navigate('edit', { id: marker.template }))}
+                            />
                         ) : slide ? (
                             <div className="tp-inspector">
                                 <section className="tp-inspector__section">
-                                    <h3 className="tp-inspector__title">{slide.owner === -1 ? 'Title slide' : 'Record slide'}</h3>
+                                    <h3 className="tp-inspector__title">{slide.owner < 0 ? 'Title slide' : 'Record slide'}</h3>
                                     <p className="tp-muted">
-                                        {slide.owner === -1
-                                            ? 'The deck template’s title slide.'
-                                            : `Drawn from ${slide.label} by the deck template, each time the presentation opens.`}{' '}
+                                        {slide.owner < 0
+                                            ? `The title slide of ${slideSection ? `“${sectionDecks[slideSection.id]?.deck?.record.name ?? slideSection.name ?? 'its template'}”` : 'the deck template'}.`
+                                            : `Drawn from ${slide.label} by ${
+                                                  slideSection ? `“${sectionDecks[slideSection.id]?.deck?.record.name ?? slideSection.name ?? 'its template'}”` : 'the deck template'
+                                              }, each time the presentation opens.`}{' '}
                                         Move it or hide it here; change what is on it in the template.
                                     </p>
                                     <div className="tp-stack tp-stack--tight">
@@ -871,10 +1012,10 @@ export function BuilderView({ params, navigate }: { params: URLSearchParams; nav
                                         <Button icon="plus" onClick={() => insert(index + 1, 'titleContent')}>
                                             Add a slide after it
                                         </Button>
-                                        {ownerId && (
+                                        {ownerLink && (
                                             <a
                                                 className="tp-btn tp-btn--ghost tp-btn--md"
-                                                href={`/${deck.schema.name}.do?sys_id=${encodeURIComponent(ownerId)}`}
+                                                href={ownerLink}
                                                 target="_blank"
                                                 rel="noreferrer"
                                             >
@@ -915,8 +1056,20 @@ export function BuilderView({ params, navigate }: { params: URLSearchParams; nav
                             next.title !== meta.title
                         setMeta(next)
                         setSettingsOpen(false)
-                        if (reload && next.templateId) void openDeck(next)
+                        if (!next.templateId) {
+                            // Built from nothing from now on: the custom slides and sections stay.
+                            setDeck(null)
+                            setDeckError('')
+                        } else if (reload) void openDeck(next)
                     }}
+                />
+            )}
+
+            {sectionDialog && (
+                <SectionModal
+                    section={'id' in sectionDialog ? sections?.find(section => section.id === sectionDialog.id) : undefined}
+                    onClose={() => setSectionDialog(null)}
+                    onApply={applySection}
                 />
             )}
 
@@ -937,7 +1090,7 @@ export function BuilderView({ params, navigate }: { params: URLSearchParams; nav
             <ConfirmModal
                 open={confirmDelete}
                 title="Delete this presentation?"
-                message={`“${record?.name ?? ''}” and its custom slides will be deleted for everyone. The deck template and its records are not touched.`}
+                message={`“${record?.name ?? ''}” and its custom slides will be deleted for everyone. The templates it uses and their records are not touched.`}
                 confirmLabel="Delete presentation"
                 danger
                 onConfirm={() => void remove()}
@@ -975,6 +1128,7 @@ function SettingsModal({ meta, onClose, onApply }: { meta: Meta; onClose: () => 
     const decks = (templates.data ?? []).filter(
         template => (template.kind === 'deck' && template.active) || template.sysId === draft.templateId
     )
+    const blank = !draft.templateId
 
     return (
         <Modal
@@ -987,7 +1141,7 @@ function SettingsModal({ meta, onClose, onApply }: { meta: Meta; onClose: () => 
                     <Button variant="ghost" onClick={onClose}>
                         Cancel
                     </Button>
-                    <Button variant="primary" disabled={!draft.templateId} onClick={() => onApply(draft)}>
+                    <Button variant="primary" onClick={() => onApply(draft)}>
                         Apply
                     </Button>
                 </>
@@ -1002,6 +1156,12 @@ function SettingsModal({ meta, onClose, onApply }: { meta: Meta; onClose: () => 
                         <Input value={draft.title} maxLength={200} onChange={event => setDraft({ ...draft, title: event.target.value })} />
                     </Field>
                 </div>
+                <Switch
+                    checked={blank}
+                    onChange={on => setDraft(on ? { ...draft, templateId: '', query: '', orderBy: '' } : { ...draft, templateId: decks[0]?.sysId ?? '' })}
+                    label="Build it from nothing — no deck template, just your own slides and the templates you place in it"
+                />
+                {!blank && (
                 <Field label="Deck template" hint="Its slides are drawn for each record. Custom slides stay whichever deck you choose.">
                     {templates.loading ? (
                         <p className="tp-row tp-subtle">
@@ -1025,7 +1185,8 @@ function SettingsModal({ meta, onClose, onApply }: { meta: Meta; onClose: () => 
                         />
                     )}
                 </Field>
-                {schema.data ? (
+                )}
+                {blank ? null : schema.data ? (
                     <SelectionForm
                         schema={schema.data}
                         allowOne={false}
@@ -1040,5 +1201,225 @@ function SettingsModal({ meta, onClose, onApply }: { meta: Meta; onClose: () => 
                 <Notice kind="critical" lines={[templates.error, schema.error].filter(Boolean)} />
             </div>
         </Modal>
+    )
+}
+
+/* ---------------------------------------------------------------- sections */
+
+/** What the section dialog decides: everything about a section but its id. */
+type SectionDraft = Omit<DeckSection, 'id'>
+
+/**
+ * Places a template in the deck, or changes a placed one: which template,
+ * which of its table's records get slides, and its title slide's title.
+ */
+function SectionModal({
+    section,
+    onClose,
+    onApply,
+}: {
+    section?: DeckSection
+    onClose: () => void
+    onApply: (draft: SectionDraft) => void
+}) {
+    const templates = useAsync(() => TemplateService.list(), [])
+    const [draft, setDraft] = useState<SectionDraft>(
+        () => section ?? { template: '', query: '', limit: 20 }
+    )
+    const [showAll, setShowAll] = useState(false)
+    const chosen = templates.data?.find(template => template.sysId === draft.template)
+    const schema = useAsync(() => SchemaService.table(chosen!.table), [chosen?.table], Boolean(chosen))
+    const selection: Selection = { mode: 'many', sysId: '', query: draft.query, orderBy: draft.orderBy ?? '', limit: draft.limit }
+    const list = (templates.data ?? []).filter(
+        template =>
+            template.sysId === draft.template ||
+            (template.active && (template.kind === 'deck' || (showAll && template.kind === 'document')))
+    )
+
+    const pick = (template: TemplateRecord) =>
+        setDraft(current => ({
+            ...current,
+            template: template.sysId,
+            name: template.name,
+            // Another table's filter means nothing here: start from the template's own.
+            ...(template.table !== chosen?.table
+                ? { query: template.query, orderBy: template.orderBy || undefined, limit: Math.min(template.limit || 20, MAX_SECTION_RECORDS) }
+                : {}),
+        }))
+
+    return (
+        <Modal
+            open
+            size="lg"
+            title={section ? 'Change this section' : 'Place a template’s slides'}
+            onClose={onClose}
+            footer={
+                <>
+                    <Button variant="ghost" onClick={onClose}>
+                        Cancel
+                    </Button>
+                    <Button variant="primary" disabled={!draft.template} onClick={() => onApply(draft)}>
+                        {section ? 'Apply' : 'Place it'}
+                    </Button>
+                </>
+            }
+        >
+            <div className="tp-stack">
+                <p className="tp-muted">
+                    The template draws its slides here — its title slide, then one for each record — in its own look, and
+                    draws them again from the records each time the presentation opens.
+                </p>
+                <Field label="Template">
+                    {templates.loading ? (
+                        <p className="tp-row tp-subtle">
+                            <Spinner size={14} /> Loading templates…
+                        </p>
+                    ) : (
+                        <TemplateChooser
+                            templates={list}
+                            value={draft.template}
+                            onChange={pick}
+                            empty="No slide decks yet. Create one on the Templates page, or show PDF templates too."
+                        />
+                    )}
+                </Field>
+                <Switch checked={showAll} onChange={setShowAll} label="Show PDF templates too — any template can be drawn as slides" />
+                {chosen && (
+                    <Field label="Section title" hint="Shown on its title slide as {{deck.title}}. Empty is the template’s name.">
+                        <Input
+                            value={draft.title ?? ''}
+                            maxLength={200}
+                            placeholder={chosen.name}
+                            onChange={event => setDraft({ ...draft, title: event.target.value || undefined })}
+                        />
+                    </Field>
+                )}
+                {schema.data ? (
+                    <SelectionForm
+                        schema={schema.data}
+                        allowOne={false}
+                        selection={selection}
+                        onChange={next =>
+                            setDraft({
+                                ...draft,
+                                query: next.query,
+                                orderBy: next.orderBy || undefined,
+                                limit: Math.max(1, Math.min(next.limit, MAX_SECTION_RECORDS)),
+                            })
+                        }
+                    />
+                ) : schema.loading ? (
+                    <p className="tp-row tp-subtle">
+                        <Spinner size={14} /> Reading the table…
+                    </p>
+                ) : null}
+                {chosen && <p className="tp-subtle">A section shows at most {MAX_SECTION_RECORDS} records.</p>}
+                <Notice kind="critical" lines={[templates.error, schema.error].filter(Boolean)} />
+            </div>
+        </Modal>
+    )
+}
+
+/** What the canvas shows for a section's header: what the section is, at the size of a slide. */
+function SectionSummary({
+    width,
+    aspect,
+    name,
+    loaded,
+    count,
+}: {
+    width: number
+    aspect: number
+    name: string
+    loaded?: LoadedSection
+    count: number
+}) {
+    const deck = loaded?.deck
+    return (
+        <div className="tp-builder__section" style={{ width, height: width / aspect }}>
+            <EmptyState icon="layers" title={name}>
+                {!loaded ? (
+                    <span className="tp-row">
+                        <Spinner size={14} /> Reading its records…
+                    </span>
+                ) : deck ? (
+                    `${count} slide${count === 1 ? '' : 's'} from ${deck.job.records.length} ${deck.schema.label} record${
+                        deck.job.records.length === 1 ? '' : 's'
+                    }, drawn by the template each time the presentation opens. Select one to see it.`
+                ) : (
+                    'Its slides could not be drawn.'
+                )}
+            </EmptyState>
+        </div>
+    )
+}
+
+/** The inspector for a section's header: its name, where its slides come from, and what can be done with them. */
+function SectionInspector({
+    section,
+    name,
+    loaded,
+    slides,
+    onRename,
+    onChange,
+    onHide,
+    onRemove,
+    onEditTemplate,
+}: {
+    section: DeckSection
+    name: string
+    loaded?: LoadedSection
+    slides: Slide[]
+    onRename: (name: string) => void
+    onChange: () => void
+    onHide: (hidden: boolean) => void
+    onRemove: () => void
+    onEditTemplate: () => void
+}) {
+    const deck = loaded?.deck
+    const allHidden = slides.length > 0 && slides.every(slide => slide.hidden)
+    return (
+        <div className="tp-inspector">
+            <section className="tp-inspector__section">
+                <h3 className="tp-inspector__title">Section</h3>
+                <Field label="Template">
+                    <span className="tp-truncate">{deck?.record.name ?? name}</span>
+                </Field>
+                <Field label="Records">
+                    <span className="tp-subtle">
+                        {deck
+                            ? `${deck.job.records.length} of ${deck.matched.toLocaleString()} ${deck.schema.label} record${deck.matched === 1 ? '' : 's'}`
+                            : loaded
+                              ? 'Not loaded'
+                              : 'Reading…'}
+                        {section.query ? ' matching its filter' : ''}
+                    </span>
+                </Field>
+                {deck && (
+                    <Field label="Shown in the sorter as">
+                        <Input value={section.name ?? ''} placeholder={deck.record.name} maxLength={100} onChange={event => onRename(event.target.value)} />
+                    </Field>
+                )}
+                <Notice kind="critical" lines={loaded?.error ? [loaded.error] : []} />
+                <div className="tp-stack tp-stack--tight">
+                    <Button icon="settings" onClick={onChange}>
+                        Change template and records
+                    </Button>
+                    <Button icon={allHidden ? 'eye' : 'eyeOff'} disabled={!slides.length} onClick={() => onHide(!allHidden)}>
+                        {allHidden ? 'Show its slides' : 'Hide its slides'}
+                    </Button>
+                    <Button icon="external" variant="ghost" onClick={onEditTemplate}>
+                        Edit the template
+                    </Button>
+                    <Button icon="trash" variant="ghost" onClick={onRemove}>
+                        Remove section
+                    </Button>
+                </div>
+                <p className="tp-subtle">
+                    Drag the section in the slide list to move all of its slides. Its slides can be moved, hidden and given
+                    notes one at a time, like any other.
+                </p>
+            </section>
+        </div>
     )
 }

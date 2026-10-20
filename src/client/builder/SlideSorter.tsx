@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { SLIDE_LAYOUTS, type SlideLayout } from '../engine/presentation'
+import { SLIDE_LAYOUTS, sectionOf, type SlideLayout } from '../engine/presentation'
 import type { PdfTemplate } from '../engine/template'
 import type { Slide } from '../slides/paginate'
 import { SlideView } from '../slides/SlideView'
@@ -19,6 +19,12 @@ type Props = {
     onHide: (key: string, hidden: boolean) => void
     onDuplicate: (key: string) => void
     onDelete: (key: string) => void
+    /** Place a template at this gap, as a section of its own. */
+    onInsertSection: (at: number) => void
+    /** A section, header and slides together, moved to the gap before `gap`. */
+    onMoveSection: (id: string, gap: number) => void
+    onHideSection: (id: string, hidden: boolean) => void
+    onRemoveSection: (id: string) => void
 }
 
 /**
@@ -28,8 +34,25 @@ type Props = {
  * slides, and after the last, a + slots a new custom slide in. Record slides
  * can be moved and hidden but not deleted or edited here: they are the
  * template's, drawn again from the records each time.
+ *
+ * A template placed in the deck is a section: a header over its slides,
+ * which drags them all along with it.
  */
-export function SlideSorter({ template, slides, current, onSelect, onInsert, onMove, onHide, onDuplicate, onDelete }: Props) {
+export function SlideSorter({
+    template,
+    slides,
+    current,
+    onSelect,
+    onInsert,
+    onMove,
+    onHide,
+    onDuplicate,
+    onDelete,
+    onInsertSection,
+    onMoveSection,
+    onHideSection,
+    onRemoveSection,
+}: Props) {
     const [dragging, setDragging] = useState<number | null>(null)
     const [target, setTarget] = useState<number | null>(null)
     const list = useRef<HTMLOListElement>(null)
@@ -43,7 +66,11 @@ export function SlideSorter({ template, slides, current, onSelect, onInsert, onM
     }, [current])
 
     const drop = () => {
-        if (dragging !== null && target !== null && target !== dragging && target !== dragging + 1) {
+        const marker = dragging !== null ? slides[dragging]?.marker : undefined
+        if (marker && target !== null) {
+            const inside = sectionOf(slides[target - 1]?.key ?? '') === marker.id && sectionOf(slides[target]?.key ?? '') === marker.id
+            if (!inside) onMoveSection(marker.id, target)
+        } else if (dragging !== null && target !== null && target !== dragging && target !== dragging + 1) {
             onMove(dragging, target > dragging ? target - 1 : target)
         }
         setDragging(null)
@@ -53,15 +80,94 @@ export function SlideSorter({ template, slides, current, onSelect, onInsert, onM
     return (
         <ol className="tp-sorter" ref={list} aria-label="Slides">
             {slides.map((slide, index) => {
+                const marker = slide.marker
+                if (marker) {
+                    const own = slides.filter(other => !other.marker && sectionOf(other.key) === marker.id)
+                    const allHidden = own.length > 0 && own.every(other => other.hidden)
+                    const last = slides.reduce((at, other, position) => (sectionOf(other.key) === marker.id ? position : at), index)
+                    return (
+                        <React.Fragment key={slide.key}>
+                            <Gap index={index} target={target} onInsert={onInsert} onInsertSection={onInsertSection} />
+                            <li
+                                data-key={slide.key}
+                                className={cx('tp-sorter__section', slide.key === current && 'is-current', dragging === index && 'is-dragging')}
+                                draggable
+                                onDragStart={event => {
+                                    event.dataTransfer.effectAllowed = 'move'
+                                    event.dataTransfer.setData('text/plain', slide.key)
+                                    setDragging(index)
+                                }}
+                                onDragOver={event => {
+                                    if (dragging === null) return
+                                    event.preventDefault()
+                                    const rect = event.currentTarget.getBoundingClientRect()
+                                    setTarget(event.clientY < rect.top + rect.height / 2 ? index : index + 1)
+                                }}
+                                onDrop={event => {
+                                    event.preventDefault()
+                                    drop()
+                                }}
+                                onDragEnd={() => {
+                                    setDragging(null)
+                                    setTarget(null)
+                                }}
+                            >
+                                <button
+                                    type="button"
+                                    className="tp-sorter__section-head"
+                                    onClick={() => onSelect(slide.key)}
+                                    aria-current={slide.key === current ? 'true' : undefined}
+                                    aria-label={`Section: ${slide.label}, ${own.length} slide${own.length === 1 ? '' : 's'}`}
+                                >
+                                    <Icon name="layers" size={12} />
+                                    <span className="tp-truncate">{slide.label}</span>
+                                    <span className="tp-sorter__section-count">{own.length}</span>
+                                </button>
+                                <div className="tp-sorter__menu">
+                                    <Menu
+                                        label={`Section actions: ${slide.label}`}
+                                        items={[
+                                            {
+                                                label: 'Move section up',
+                                                icon: 'chevronUp',
+                                                disabled: index === 0,
+                                                onSelect: () => onMoveSection(marker.id, index - 1),
+                                            },
+                                            {
+                                                label: 'Move section down',
+                                                icon: 'chevronDown',
+                                                disabled: last >= slides.length - 1,
+                                                onSelect: () => onMoveSection(marker.id, last + 2),
+                                            },
+                                            {
+                                                label: allHidden ? 'Show its slides' : 'Hide its slides',
+                                                icon: allHidden ? 'eye' : 'eyeOff',
+                                                disabled: !own.length,
+                                                onSelect: () => onHideSection(marker.id, !allHidden),
+                                            },
+                                            {
+                                                label: 'Remove section',
+                                                icon: 'trash',
+                                                danger: true,
+                                                onSelect: () => onRemoveSection(marker.id),
+                                            },
+                                        ]}
+                                    />
+                                </div>
+                            </li>
+                        </React.Fragment>
+                    )
+                }
                 if (!slide.hidden) shownNumber++
                 const custom = Boolean(slide.custom)
                 return (
                     <React.Fragment key={slide.key}>
-                        <Gap index={index} target={target} onInsert={onInsert} />
+                        <Gap index={index} target={target} onInsert={onInsert} onInsertSection={onInsertSection} />
                         <li
                             data-key={slide.key}
                             className={cx(
                                 'tp-sorter__item',
+                                sectionOf(slide.key) !== null && 'in-section',
                                 slide.key === current && 'is-current',
                                 slide.hidden && 'is-hidden',
                                 dragging === index && 'is-dragging'
@@ -145,7 +251,7 @@ export function SlideSorter({ template, slides, current, onSelect, onInsert, onM
                     </React.Fragment>
                 )
             })}
-            <Gap index={slides.length} target={target} onInsert={onInsert} last />
+            <Gap index={slides.length} target={target} onInsert={onInsert} onInsertSection={onInsertSection} last />
         </ol>
     )
 }
@@ -175,11 +281,13 @@ function Gap({
     index,
     target,
     onInsert,
+    onInsertSection,
     last,
 }: {
     index: number
     target: number | null
     onInsert: (at: number, layout: SlideLayout) => void
+    onInsertSection: (at: number) => void
     last?: boolean
 }) {
     return (
@@ -188,7 +296,10 @@ function Gap({
                 label={last ? 'Add a slide at the end' : 'Insert a slide here'}
                 icon="plus"
                 align="start"
-                items={SLIDE_LAYOUTS.map(({ layout, label }) => ({ label, onSelect: () => onInsert(index, layout) }))}
+                items={[
+                    ...SLIDE_LAYOUTS.map(({ layout, label }) => ({ label, onSelect: () => onInsert(index, layout) })),
+                    { label: 'A template’s slides…', icon: 'layers' as const, onSelect: () => onInsertSection(index) },
+                ]}
             />
         </li>
     )

@@ -183,6 +183,78 @@
   box-shadow: var(--tp-shadow-sm);
 }
 
+/* A template placed in the deck: a header over its slides, which are set in under it. */
+.tp-sorter__section {
+  position: relative;
+  margin-top: var(--tp-space-1);
+  border-radius: var(--tp-radius);
+}
+
+.tp-sorter__section.is-dragging {
+  opacity: 0.4;
+}
+
+.tp-sorter__section-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  padding: 6px 2.25rem 6px var(--tp-space-2);
+  border: 1px solid var(--tp-border);
+  border-radius: var(--tp-radius);
+  background: var(--tp-surface-sunken);
+  color: var(--tp-text-muted);
+  font: inherit;
+  font-size: var(--tp-text-xs);
+  font-weight: 600;
+  text-align: left;
+  cursor: grab;
+}
+
+.tp-sorter__section-head:hover {
+  background: var(--tp-surface-hover);
+}
+
+.tp-sorter__section.is-current .tp-sorter__section-head {
+  border-color: var(--tp-primary);
+  background: var(--tp-primary-tint);
+  color: var(--tp-text);
+}
+
+.tp-sorter__section-count {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  color: var(--tp-text-subtle);
+}
+
+.tp-sorter__section:hover .tp-sorter__menu,
+.tp-sorter__section.is-current .tp-sorter__menu {
+  opacity: 1;
+}
+
+.tp-sorter__section .tp-sorter__menu {
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.tp-sorter__item.in-section {
+  margin-left: var(--tp-space-2);
+  padding-left: calc(var(--tp-space-1) + 2px);
+  border-left: 2px solid var(--tp-border);
+  border-radius: 0 var(--tp-radius) var(--tp-radius) 0;
+}
+
+/* The canvas, when a section's header is selected. */
+.tp-builder__section {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed var(--tp-border-strong);
+  border-radius: var(--tp-radius-lg);
+  background: var(--tp-surface);
+}
+
 /* Between slides: a drop marker while dragging, and a + to slot a slide in. */
 .tp-sorter__gap {
   position: relative;

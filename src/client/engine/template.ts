@@ -730,6 +730,16 @@ function starterDeck(fields: StarterField[]): PdfTemplate {
   };
 }
 
+/**
+ * What a presentation built from nothing is drawn on: a deck's slide — its
+ * size, type, colours and margins — with no record blocks, title slide or
+ * furniture of its own.
+ */
+export function blankDeck(): PdfTemplate {
+  const { page, style } = starterDeck([]);
+  return { page, style, blocks: [], footer: { text: "", showPageNumbers: false } };
+}
+
 /* --------------------------------- blanks -------------------------------- */
 
 /** What each block type starts as when it is added to a template. */

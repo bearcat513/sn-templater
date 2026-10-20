@@ -47,6 +47,8 @@ Templater.MAX_CUSTOM_SLIDES = 200;
 Templater.MAX_ELEMENTS = 120;
 Templater.MAX_BODY_LENGTH = 3000000;
 Templater.MAX_NOTES_LENGTH = 5000;
+Templater.MAX_SECTIONS = 20;
+Templater.MAX_SECTION_RECORDS = 200;
 
 /* Slide sizes and page defaults from src/client/engine/pdf.ts and template.ts, in points. */
 Templater.PAGE_DIMENSIONS = {
@@ -64,6 +66,17 @@ Templater.DEFAULT_PAGE = {
     textColor: '#18181b',
     mutedColor: '#71717a',
     accentColor: '#18181b',
+};
+
+/* A presentation built from nothing: the starter deck's slide (src/client/engine/template.ts, blankDeck). */
+Templater.BLANK_DECK_PAGE = {
+    size: 'Slide16x9',
+    margins: { top: 48, right: 56, bottom: 44, left: 56 },
+    fontSize: 16,
+    textColor: '#1f2937',
+    mutedColor: '#6b7280',
+    accentColor: '#1d4ed8',
+    background: '#ffffff',
 };
 
 Templater.LAYOUTS = ['blank', 'title', 'titleContent', 'section', 'twoContent', 'titleOnly'];
@@ -220,8 +233,12 @@ Templater.prototype = {
      * Starts a new presentation on a deck template. Chain the builder's
      * methods, then call save(). The template's default records, order and
      * limit apply until you change them.
+     *
+     * With no template, it starts a blank presentation: custom slides of your
+     * own, and templates placed in it with addTemplate().
      */
     deck: function (template) {
+        if (template === undefined || template === null || template === '') return new Templater.Deck(this, null, null);
         var source = this._requireTemplate(template, 'Templater.deck');
         if (String(source.getValue('kind')) !== 'deck') {
             throw new Error('Templater.deck: "' + source.getValue('name') + '" is a ' + String(source.getValue('kind') || 'document') + ' template, not a deck.');
@@ -236,10 +253,9 @@ Templater.prototype = {
     openDeck: function (presentation) {
         var record = this._presentationRecord(presentation);
         if (!record) throw new Error('Templater.openDeck: there is no presentation "' + presentation + '".');
-        var template = this._templateRecord(String(record.getValue('template') || ''));
-        if (!template) {
-            throw new Error('Templater.openDeck: "' + record.getValue('name') + '" has no deck. Its template was deleted.');
-        }
+        // No deck template — built from nothing, or its template was deleted — is a blank presentation.
+        var templateId = String(record.getValue('template') || '');
+        var template = templateId ? this._templateRecord(templateId) : null;
         return new Templater.Deck(this, template, record);
     },
 
@@ -406,13 +422,16 @@ Templater.prototype = {
  * fresh every time the presentation opens. A record that starts matching
  * later takes its place among the other records. Custom slides stay where
  * you put them.
+ *
+ * A deck with no template (`templater.deck()`) is blank: it has no records
+ * of its own, only custom slides and the templates placed in it.
  */
 Templater.Deck = function (templater, template, presentation) {
     this._templater = templater;
     this._template = template;
     this._presentation = presentation;
 
-    var body = this._templater._parse(template.getValue('body')) || {};
+    var body = template ? this._templater._parse(template.getValue('body')) || {} : { page: Templater.BLANK_DECK_PAGE };
     this._templateBody = body;
     this.page = Templater.resolvePage(body.page);
     var dimensions = Templater.PAGE_DIMENSIONS[this.page.size] || Templater.PAGE_DIMENSIONS.Slide16x9;
@@ -426,10 +445,10 @@ Templater.Deck = function (templater, template, presentation) {
     var source = presentation || template;
     this._meta = {
         name: presentation ? String(presentation.getValue('name') || '') : '',
-        title: presentation ? String(presentation.getValue('title') || '') : String(template.getValue('name') || ''),
-        query: String(source.getValue('query') || ''),
-        orderBy: String(source.getValue('order_by') || ''),
-        limit: parseInt(source.getValue('record_limit'), 10) || 20,
+        title: presentation ? String(presentation.getValue('title') || '') : template ? String(template.getValue('name') || '') : '',
+        query: source && template ? String(source.getValue('query') || '') : '',
+        orderBy: source && template ? String(source.getValue('order_by') || '') : '',
+        limit: (source && parseInt(source.getValue('record_limit'), 10)) || 20,
     };
 
     var saved = presentation ? this._templater._parse(presentation.getValue('body')) : null;
@@ -438,6 +457,7 @@ Templater.Deck = function (templater, template, presentation) {
         slides: saved && Array.isArray(saved.slides) ? saved.slides : [],
         order: saved && Array.isArray(saved.order) ? saved.order : [],
     };
+    if (saved && Array.isArray(saved.sections) && saved.sections.length) this._body.sections = saved.sections;
     if (saved && saved.transition) this._body.transition = saved.transition;
     if (saved && saved.options) this._body.options = saved.options;
     this._placements = [];
@@ -457,34 +477,59 @@ Templater.Deck.prototype = {
      * encoded query; one record on its own, such as `current`, gives just that record.
      */
     records: function (records) {
-        if (records && typeof records.getEncodedQuery === 'function') {
-            var table = String(records.getTableName());
-            var wanted = String(this._template.getValue('table'));
-            if (this._templater._ancestors(table).indexOf(wanted) === -1) {
-                throw new Error('Templater: the deck is for ' + wanted + ', and these records are on ' + table + '.');
-            }
-            var encoded = String(records.getEncodedQuery() || '');
-            var sysId = records.isValidRecord() ? String(records.getUniqueValue()) : '';
-            // `current` in a business rule has no query: an empty one would match every record.
-            if (!encoded && !sysId) throw new Error('Templater: that GlideRecord has neither a query nor a record.');
-            this._meta.query = encoded || 'sys_id=' + sysId;
-        } else if (Array.isArray(records)) {
-            this._meta.query = 'sys_idIN' + this._templater._ids(records).join(',');
-        } else {
-            this._meta.query = String(records || '');
-        }
+        this._meta.query = this._query(records, this._own('records'), 'deck');
         return this;
     },
 
     /** A field to sort by. Start it with a minus sign to sort descending: '-opened_at'. */
     orderBy: function (field) {
+        this._own('orderBy');
         this._meta.orderBy = String(field || '');
         return this;
     },
 
     /** At most this many records (up to 500). */
     limit: function (limit) {
+        this._own('limit');
         this._meta.limit = this._templater._limit(limit);
+        return this;
+    },
+
+    /**
+     * Places a template's slides in the deck as a section of their own: its
+     * title slide, then a slide for each record it matches, drawn in the
+     * template's own look every time the presentation opens. A blank deck
+     * and a deck built on a template can both have sections.
+     *
+     * @param {*} template A deck (or document) template: sys_id, name or GlideRecord.
+     * @param {object} [options] { records, orderBy, limit, title, name, position }.
+     *     `records` is an encoded query, a GlideRecord or an array of sys_ids on the
+     *     template's table; it defaults to the template's own. `limit` is at most 200.
+     *     `position` is 'end' (the default), 'start' or 'afterCover', as for addSlide.
+     */
+    addTemplate: function (template, options) {
+        var source = this._templater._requireTemplate(template, 'Templater.addTemplate');
+        if (String(source.getValue('kind')) === 'chart') {
+            throw new Error('Templater.addTemplate: "' + source.getValue('name') + '" is a chart template. Place it on a slide with slide.chart().');
+        }
+        var sections = this._body.sections || (this._body.sections = []);
+        if (sections.length >= Templater.MAX_SECTIONS) {
+            throw new Error('Templater: a presentation can place up to ' + Templater.MAX_SECTIONS + ' templates.');
+        }
+        options = options || {};
+        var table = String(source.getValue('table'));
+        var section = {
+            id: Templater.newId(),
+            template: source.getUniqueValue(),
+            name: String(options.name || source.getValue('name') || '').slice(0, 100),
+            query: options.records !== undefined ? this._query(options.records, table, 'template') : String(source.getValue('query') || ''),
+            limit: Math.max(1, Math.min(parseInt(options.limit, 10) || parseInt(source.getValue('record_limit'), 10) || 20, Templater.MAX_SECTION_RECORDS)),
+        };
+        var orderBy = options.orderBy !== undefined ? String(options.orderBy || '') : String(source.getValue('order_by') || '');
+        if (orderBy) section.orderBy = orderBy;
+        if (options.title) section.title = String(options.title).slice(0, 200);
+        sections.push(section);
+        this._placements.push({ key: 'section:' + section.id, position: options.position || 'end' });
         return this;
     },
 
@@ -548,7 +593,7 @@ Templater.Deck.prototype = {
     /** Writes the presentation and returns its sys_id. A new one needs a name; it defaults to the title. */
     save: function (name) {
         if (name) this._meta.name = String(name);
-        if (!this._meta.name) this._meta.name = this._meta.title || String(this._template.getValue('name'));
+        if (!this._meta.name) this._meta.name = this._meta.title || (this._template ? String(this._template.getValue('name')) : 'Untitled presentation');
 
         this._body.order = this._arrange();
         var text = this._templater._serialize(this._body, 'Templater: a presentation body');
@@ -557,7 +602,7 @@ Templater.Deck.prototype = {
         if (!record) {
             record = this._templater._record(Templater.PRESENTATION_TABLE);
             record.initialize();
-            record.setValue('template', this._template.getUniqueValue());
+            if (this._template) record.setValue('template', this._template.getUniqueValue());
         }
         record.setValue('name', this._meta.name.slice(0, 100));
         record.setValue('title', this._meta.title.slice(0, 200));
@@ -594,6 +639,7 @@ Templater.Deck.prototype = {
 
     /** The sys_ids of the records the deck would show now, in order. */
     recordIds: function () {
+        if (!this._template) return [];
         var table = String(this._template.getValue('table'));
         var record = this._templater._record(table);
         if (this._meta.query) record.addEncodedQuery(this._meta.query);
@@ -608,6 +654,31 @@ Templater.Deck.prototype = {
     },
 
     /* ------------------------------- internals ------------------------------ */
+
+    /** The deck template's table, for the methods that change its own records. A blank deck has none. */
+    _own: function (caller) {
+        if (!this._template) {
+            throw new Error('Templater: a blank deck has no records of its own to ' + caller + '. Place a template with addTemplate() instead.');
+        }
+        return String(this._template.getValue('table'));
+    },
+
+    /** An encoded query on `wanted` from a query, a GlideRecord or an array of sys_ids. */
+    _query: function (records, wanted, what) {
+        if (records && typeof records.getEncodedQuery === 'function') {
+            var table = String(records.getTableName());
+            if (this._templater._ancestors(table).indexOf(wanted) === -1) {
+                throw new Error('Templater: the ' + what + ' is for ' + wanted + ', and these records are on ' + table + '.');
+            }
+            var encoded = String(records.getEncodedQuery() || '');
+            var sysId = records.isValidRecord() ? String(records.getUniqueValue()) : '';
+            // `current` in a business rule has no query: an empty one would match every record.
+            if (!encoded && !sysId) throw new Error('Templater: that GlideRecord has neither a query nor a record.');
+            return encoded || 'sys_id=' + sysId;
+        }
+        if (Array.isArray(records)) return 'sys_idIN' + this._templater._ids(records).join(',');
+        return String(records || '');
+    },
 
     _saved: function (caller) {
         if (!this._presentation) throw new Error('Templater: call save() before ' + caller + '().');

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { loadCharts, withCharts } from '../data/charts'
-import { canChangePresentation, loadDeck, sourceOf } from '../data/deck'
+import { loadCharts } from '../data/charts'
+import { assemble, canChangePresentation, loadDeck, loadSections, recordLink, sourceOf } from '../data/deck'
 import { loadRecords } from '../data/loader'
 import { useSession } from '../data/session'
 import { describeError, log, useInspect } from '../debug/log'
@@ -15,7 +15,7 @@ import { setPageTitle, type Navigate } from '../hooks/useRoute'
 import { SchemaService } from '../services/schema'
 import { PresentationService, type PresentationRecord } from '../services/presentations'
 import { TemplateService } from '../services/templates'
-import { arrange, paginate, shown, type Slide } from '../slides/paginate'
+import { arrange, shown, type Slide } from '../slides/paginate'
 import { Presenter } from '../slides/Presenter'
 import { Icon } from '../ui/icons'
 import { Button, Field, Input, Notice, Spinner, Switch } from '../ui/controls'
@@ -26,8 +26,6 @@ type Deck = {
     template: PdfTemplate
     job: RenderJob
     title: string
-    table: string
-    matched: number
     /** A saved presentation's own running order; absent is the deck as the template draws it. */
     slides?: Slide[]
     presentation?: PresentationRecord
@@ -86,20 +84,18 @@ export function PresentView({ params, navigate }: { params: URLSearchParams; nav
         setError('')
         try {
             const presentation = await PresentationService.get(sysId)
-            if (!presentation.template) throw new Error(`“${presentation.name}” has no deck: its template was deleted. Open it in the builder to choose another.`)
-            const loaded = await loadDeck(sourceOf(presentation), session)
             const body = readPresentation(presentation.body ?? '')
-            const job = withCharts(loaded.job, await loadCharts(presentationChartIds(body)))
-            const slides = shown(arrange(paginate(loaded.template, job), job, body))
-            setDeck({
-                template: loaded.template,
-                job,
-                title: presentation.name,
-                table: loaded.schema.name,
-                matched: loaded.matched,
-                slides,
-                presentation,
-            })
+            const source = sourceOf(presentation)
+            // A presentation built from nothing has no deck of its own: its custom slides and the templates placed in it.
+            const [main, sections, charts] = await Promise.all([
+                source.templateId ? loadDeck(source, session) : null,
+                loadSections(body.sections ?? [], session),
+                loadCharts(presentationChartIds(body)),
+            ])
+            const failed = Object.values(sections).find(section => section.error)
+            if (failed) log.warn('present', `A section of “${presentation.name}” could not be loaded: ${failed.error}`)
+            const { frame, job, generated } = assemble(main, source.title, session, body.sections ?? [], sections, charts)
+            setDeck({ template: frame, job, title: presentation.name, slides: shown(arrange(generated, job, body)), presentation })
             setPageTitle(presentation.name)
         } catch (failure) {
             const { message, data } = describeError(failure)
@@ -148,7 +144,7 @@ export function PresentView({ params, navigate }: { params: URLSearchParams; nav
             const read = readTemplate(full.data.body ?? '', full.data.kind, schema.data.fields)
             if (!read.ok) throw new Error(`“${full.data.name}” could not be read: ${read.error}`)
             const deckTitle = title.trim() || full.data.name
-            const { job, matched } = await loadRecords({
+            const { job } = await loadRecords({
                 template: read.value,
                 schema: schema.data,
                 session,
@@ -156,7 +152,7 @@ export function PresentView({ params, navigate }: { params: URLSearchParams; nav
                 selection: { kind: 'query', query: selection.query, orderBy: selection.orderBy, limit: selection.limit },
                 onProgress: (done, total) => total && setProgress(`Reading related lists… ${done} of ${total}`),
             })
-            setDeck({ template: read.value, job, title: deckTitle, table: schema.data.name, matched })
+            setDeck({ template: read.value, job, title: deckTitle })
             setPageTitle(deckTitle)
         } catch (failure) {
             const { message, data } = describeError(failure)
@@ -206,10 +202,7 @@ export function PresentView({ params, navigate }: { params: URLSearchParams; nav
                           })
                 }
                 editLabel={deck.presentation ? 'Edit in the slide builder' : 'Arrange and save in the slide builder'}
-                recordUrl={owner => {
-                    const sysId = deck.job.records[owner]?.values['raw.sys_id']
-                    return sysId ? `/${deck.table}.do?sys_id=${encodeURIComponent(sysId)}` : null
-                }}
+                recordUrl={recordLink}
             />
         )
     }
@@ -225,6 +218,9 @@ export function PresentView({ params, navigate }: { params: URLSearchParams; nav
                     <h1>Present a deck</h1>
                     <p className="tp-muted">One slide per record. Arrow keys to move, F for full screen, G for an overview.</p>
                 </div>
+                <Button icon="plus" onClick={() => navigate('build')} title="Start from an empty deck and place templates’ slides wherever you want them">
+                    New blank presentation
+                </Button>
             </header>
 
             {saved.loading ? (
@@ -245,14 +241,14 @@ export function PresentView({ params, navigate }: { params: URLSearchParams; nav
                                 <span className="tp-saved__text">
                                     <span className="tp-saved__name tp-truncate">{presentation.name}</span>
                                     <span className="tp-subtle tp-truncate">
-                                        {presentation.templateName || 'No deck'} · {presentation.updatedOn} · {presentation.createdBy}
+                                        {presentation.templateName || 'Blank deck'} · {presentation.updatedOn} · {presentation.createdBy}
                                     </span>
                                 </span>
                                 <Button
                                     size="sm"
                                     icon="play"
                                     busy={opening === presentation.sysId}
-                                    disabled={Boolean(opening) || !presentation.template}
+                                    disabled={Boolean(opening)}
                                     onClick={() => void presentSaved(presentation.sysId)}
                                 >
                                     Present

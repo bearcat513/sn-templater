@@ -12,6 +12,11 @@ import { IntegerColumn, ReferenceColumn, StringColumn, Table } from '@servicenow
  * made by hand is kept, in `body` — the custom slides (pictures included, as
  * data: URLs, which is why it is allowed to be large) and the order.
  *
+ * The deck template is optional. A presentation without one is built from
+ * nothing: custom slides, and other templates placed in it as sections —
+ * each a template, its filter, sort and limit, kept in `body` — whose slides
+ * are drawn the same way, in that template's own look.
+ *
  * Deleting the template clears the reference rather than the presentation:
  * the custom slides are someone's work, and can be put on another deck.
  */
@@ -48,7 +53,7 @@ export const x_1040823_template_presentation = Table({
         body: StringColumn({
             label: 'Body',
             maxLength: 3000000,
-            hint: 'The custom slides and the running order, as JSON. Edit it in the Templater slide builder.',
+            hint: 'The custom slides, the templates placed in sections, and the running order, as JSON. Edit it in the Templater slide builder.',
         }),
     },
 })

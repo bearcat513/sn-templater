@@ -246,7 +246,16 @@ type Page = {
   states: Set<string>;
   /** Link annotations: a rectangle in page coordinates and where it goes. */
   links: { x: number; y: number; width: number; height: number; url: string }[];
+  /** The margins and type the page was laid out in, for what is drawn over it at the end. */
+  layout: PageLayout;
 };
+
+/**
+ * What can change from one page to the next: the sheet stays the same size,
+ * but a deck that places several templates sets each one's pages in its own
+ * margins and type.
+ */
+export type PageLayout = Pick<DocumentOptions, "margins" | "family" | "fontSize" | "color">;
 
 /** A hex string literal, which is how a palette reaches the file. */
 const pdfHex = (bytes: Uint8Array): string => {
@@ -258,10 +267,11 @@ const pdfHex = (bytes: Uint8Array): string => {
 export class PdfDocument {
   readonly width: number;
   readonly height: number;
-  readonly margins: Margins;
-  readonly family: FontFamily;
-  readonly fontSize: number;
-  readonly color: string;
+  /** The current page's; see `setLayout`. */
+  margins: Margins;
+  family: FontFamily;
+  fontSize: number;
+  color: string;
 
   private readonly options: DocumentOptions;
   private readonly pages: Page[] = [];
@@ -335,9 +345,32 @@ export class PdfDocument {
     this.fontSize = this.options.fontSize;
     this.color = this.options.color;
 
-    this.page = { operators: [], fonts: new Set(), images: new Set(), states: new Set(), links: [] };
+    this.page = this.blankPage();
     this.pages.push(this.page);
     this.cursor = this.margins.top;
+  }
+
+  private blankPage(): Page {
+    const layout = { margins: this.margins, family: this.family, fontSize: this.fontSize, color: this.color };
+    return { operators: [], fonts: new Set(), images: new Set(), states: new Set(), links: [], layout };
+  }
+
+  /**
+   * Lays out this page, and the pages that follow it, in other margins and
+   * type — for a fresh page, before anything is drawn on it. The cursor goes
+   * back to the top margin.
+   */
+  setLayout(layout: PageLayout): void {
+    this.useLayout(layout);
+    this.page.layout = layout;
+    this.cursor = this.margins.top;
+  }
+
+  private useLayout(layout: PageLayout): void {
+    this.margins = layout.margins;
+    this.family = layout.family;
+    this.fontSize = layout.fontSize;
+    this.color = layout.color;
   }
 
   /* ------------------------------ geometry ------------------------------ */
@@ -380,7 +413,7 @@ export class PdfDocument {
   /* ------------------------------- pages -------------------------------- */
 
   addPage(): void {
-    this.page = { operators: [], fonts: new Set(), images: new Set(), states: new Set(), links: [] };
+    this.page = this.blankPage();
     this.pages.push(this.page);
     this.cursor = this.margins.top;
   }
@@ -974,6 +1007,7 @@ export class PdfDocument {
 
     this.pages.forEach((page, index) => {
       this.page = page;
+      this.useLayout(page.layout);
       for (const overlay of this.overlays) {
         // Into the bottom margin, where content is not allowed to go.
         this.cursor = this.height - this.margins.bottom + 14;
@@ -994,6 +1028,7 @@ export class PdfDocument {
     });
 
     this.page = saved;
+    this.useLayout(saved.layout);
     this.cursor = savedCursor;
   }
 

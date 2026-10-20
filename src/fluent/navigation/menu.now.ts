@@ -1,6 +1,6 @@
 import '@servicenow/sdk/global'
 import { ApplicationMenu, Record } from '@servicenow/sdk/core'
-import { templaterEditor, templaterUser } from '../security/roles.now'
+import { templaterUser } from '../security/roles.now'
 
 export const templaterMenu = ApplicationMenu({
     $id: Now.ID['templater-menu'],
@@ -11,6 +11,12 @@ export const templaterMenu = ApplicationMenu({
     active: true,
 })
 
+/*
+ * A module's `roles` is a plain string field on sys_app_module, so it takes
+ * role names: a Role object here is written as "[object Object]", a role
+ * nobody has, and the menu shows up empty (which the navigator then hides).
+ */
+
 Record({
     $id: Now.ID['templater-module-templates'],
     table: 'sys_app_module',
@@ -20,7 +26,7 @@ Record({
         link_type: 'DIRECT',
         query: 'x_1040823_template_templater.do?view=templates',
         hint: 'Browse and design templates',
-        roles: [templaterUser],
+        roles: ['x_1040823_template.user'],
         active: true,
         order: 100,
     },
@@ -35,7 +41,7 @@ Record({
         link_type: 'DIRECT',
         query: 'x_1040823_template_templater.do?view=export',
         hint: 'Export records and their related lists to PDF',
-        roles: [templaterUser],
+        roles: ['x_1040823_template.user'],
         active: true,
         order: 200,
     },
@@ -50,7 +56,7 @@ Record({
         link_type: 'DIRECT',
         query: 'x_1040823_template_templater.do?view=present',
         hint: 'Present records as slides, and open saved presentations',
-        roles: [templaterUser],
+        roles: ['x_1040823_template.user'],
         active: true,
         order: 300,
     },
@@ -65,7 +71,7 @@ Record({
         link_type: 'LIST',
         name: 'x_1040823_template_template',
         hint: 'The template table, for administration',
-        roles: [templaterEditor],
+        roles: ['x_1040823_template.editor'],
         active: true,
         order: 400,
     },
@@ -80,7 +86,7 @@ Record({
         link_type: 'LIST',
         name: 'x_1040823_template_presentation',
         hint: 'Saved presentations, for administration',
-        roles: [templaterEditor],
+        roles: ['x_1040823_template.editor'],
         active: true,
         order: 500,
     },

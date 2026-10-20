@@ -67,10 +67,24 @@ A chart block can also chart figures written into it (tokens work) or count a re
 
 A **presentation** is a deck you arrange and save. It is a record on `x_1040823_template_presentation` with these parts:
 
-- the deck template it is built on
+- the deck template it is built on, if any
 - which records get slides: a filter, a sort order and a limit
 - a title
-- a `body`: the custom slides and the running order, as JSON
+- a `body`: the custom slides, the templates placed in it, and the running order, as JSON
+
+### Blank decks and placed templates
+
+- **Starting from nothing:** **New blank presentation** on the Present page opens the slide builder with no deck template. You get a plain 16:9 deck and a title slide to start from. An existing presentation can drop its deck template the same way, under **Deck and records**. Its custom slides and sections stay.
+- **Placing a template:** the **+** between any two slides, and the **New** menu, have **A template’s slides…**. Pick a deck template (or, with the switch, a PDF template), its records (filter, sort, limit up to 200) and a title for its title slide. Its slides go there as a **section**.
+- **What a section is:**
+  - A header in the slide list, followed by the template’s title slide and one slide per record. The slides are drawn in that template’s own look: blocks, type, colours, margins, letterhead, watermark and footer. The sheet size is always the presentation’s.
+  - Like the deck’s own record slides, its slides are drawn again each time the presentation opens. A new matching record goes among that section’s records.
+  - Each slide can be moved, hidden, given notes and a transition.
+- **Working with sections:**
+  - Drag the header to move the whole section.
+  - Select the header to rename the section, change its template and records, hide all of its slides, or remove it.
+  - Removing a section doesn't touch the template.
+- A presentation can place up to 20 templates. A deck built on a template can have sections too.
 
 Record slides are not stored. They are drawn from the template each time the presentation opens, against whatever the filter matches then. That means a presentation saved once shows this week's records next week.
 
@@ -105,7 +119,7 @@ To open the **slide builder**, use **Build slides** on the Present page, or **Ed
   - Page Up / Page Down change slides. F5 presents from the start; Shift+F5 presents from the current slide. Ctrl+S saves.
 - **Tokens:** a custom slide's text can use `{{deck.title}}`, `{{deck.count}}`, `{{table.label}}`, `{{now.date}}`, `{{user.name}}`, `{{slide.number}}` and `{{slide.count}}`. Slide numbers count only the slides that are shown.
 
-**Running order:** the order is saved as slide keys (`cover:1`, `record:<sys_id>:1`, `custom:<id>`), not as positions. A record that no longer matches the filter drops out. A record that starts to match is placed among the other record slides, after the record it follows in the filter's own order.
+**Running order:** the order is saved as slide keys (`cover:1`, `record:<sys_id>:1`, `custom:<id>`, and for a section `section:<id>` followed by `section:<id>:cover:1`, `section:<id>:record:<sys_id>:1`), not as positions. A record that no longer matches the filter drops out. A record that starts to match is placed among the other record slides, after the record it follows in the filter's own order.
 
 **Who can change one:** every Templater user can open and present any presentation, and save their own. Only the author or a Templater editor can change or delete one. Anyone else gets **Save a copy**. Deleting a deck template keeps its presentations: their custom slides stay and can be moved onto another deck.
 
@@ -206,14 +220,15 @@ current.work_notes = '[code]<a href="' + url + '" target="_blank">Incident repor
 
 ### Presentations
 
-`deck(template)` starts a new presentation on a deck template, and `openDeck(presentation)` loads a saved one to change. Both return a builder whose methods chain. Nothing is written until `save()`.
+`deck(template)` starts a new presentation on a deck template; `deck()` with no template starts a blank one. `openDeck(presentation)` loads a saved one to change. All of them return a builder whose methods chain. Nothing is written until `save()`.
 
 | Builder method | What it does |
 | --- | --- |
 | `title(text)` | The title slide's `{{deck.title}}`. |
-| `records(query \| GlideRecord \| [sys_ids])` | Which records get a slide. A queried GlideRecord gives its query; `current` gives just that record. If you don't set records, the template's default records are used. |
+| `records(query \| GlideRecord \| [sys_ids])` | Which of the deck template's records get a slide (a blank deck has none; use `addTemplate`). A queried GlideRecord gives its query; `current` gives just that record. If you don't set records, the template's default records are used. |
 | `orderBy('-opened_at')`, `limit(n)` | Sort order (minus sign for descending) and how many records, up to 500. |
 | `addSlide(layout, content, options)` | A custom slide. See below. |
+| `addTemplate(template, { records, orderBy, limit, title, name, position })` | Places a template's slides as a section: its title slide and a slide per record, in its own look. `records` defaults to the template's own, `limit` is at most 200, and `position` is `'end'`, `'start'` or `'afterCover'`. |
 | `notes(record \| 'cover' \| key, text)` | Speaker notes on a record's slide or the title slide. |
 | `hide(record \| 'cover' \| key)` | Leaves that slide out of the show and the PDF. |
 | `transition('fade')` | none, fade, push, wipe or zoom, for every slide. |
@@ -272,6 +287,18 @@ var deck = templater.deck('Major incident review')
     }, { notes: 'Open the floor.' });
 deck.save();
 gs.info('This week\'s P1 review: ' + deck.presentUrl({ absolute: true }));
+```
+
+```js
+// A blank deck: an opening slide, then two templates' slides, each in its own look
+var templater = new x_1040823_template.Templater();
+templater.deck()
+    .title('Ops review')
+    .addSlide('title', { title: 'Ops review', subtitle: '{{now.date}}' })
+    .addTemplate('Major incident review', { records: 'active=true^priority=1', orderBy: '-opened_at', limit: 10, title: 'Open P1s' })
+    .addTemplate('CAB review', { title: 'Changes awaiting approval' })
+    .addSlide('titleContent', { title: 'Next steps', body: ['Owners', 'Dates'] })
+    .save();
 ```
 
 ```js

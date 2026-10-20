@@ -93,6 +93,12 @@ export type SlideSource = {
   related: Record<string, RelatedRows>;
   /** The job's chart templates, carried with each slide for the screen, which draws a slide at a time. */
   charts?: Record<string, LoadedChart>;
+  /**
+   * The template that draws it, when that is not the deck's own: a slide of a
+   * template placed in the deck as a section. Its blocks, type, colours,
+   * margins and furniture are that template's; the sheet stays the deck's.
+   */
+  template?: PdfTemplate;
 };
 
 export type PdfRenderResult = {
@@ -167,6 +173,8 @@ export function renderPdfSlides(template: PdfTemplate, job: RenderJob, slides: S
 /** What each page of the file is, for the furniture drawn over it once they all exist. */
 type PageInfo = {
   owner: number;
+  /** Whose letterhead, watermark and footer the page has. */
+  template: PdfTemplate;
   values: Record<string, string>;
   /** Letterhead, watermark and footer. A custom slide has them only when asked. */
   furniture: boolean;
@@ -180,8 +188,19 @@ function renderSections(
   emptyText: string,
 ): PdfRenderResult {
   const page = resolvePage(template);
-  const style = resolveStyle(template, page.fontSize);
   const unknown = new Set<string>();
+
+  // Each template's page and style, resolved once: a deck can place several.
+  const looks = new Map<PdfTemplate, { page: PdfPageSetup; style: PdfStyle }>();
+  const lookOf = (own: PdfTemplate) => {
+    let look = looks.get(own);
+    if (!look) {
+      const ownPage = own === template ? page : { ...resolvePage(own), size: page.size, landscape: page.landscape };
+      look = { page: ownPage, style: resolveStyle(own, ownPage.fontSize) };
+      looks.set(own, look);
+    }
+    return look;
+  };
   const problems = new Set<string>();
 
   /*
@@ -234,27 +253,31 @@ function renderSections(
   for (const section of sections) {
     if (started) document.addPage();
     started = true;
+    const own = section.template ?? template;
+    const { page: ownPage, style: ownStyle } = lookOf(own);
+    document.setLayout({ margins: ownPage.margins, family: ownPage.family, fontSize: ownPage.fontSize, color: ownPage.textColor });
     const fill = filler(section.values);
+    const charts = section.charts ?? job.charts ?? {};
     if (section.custom) {
       renderCustomSlide(section.custom, {
         document,
-        family: page.family,
+        family: ownPage.family,
         fill,
         picture,
         base: section.values["url.instance"],
-        charts: job.charts ?? {},
-        chartStyle: chartStyle(page, section.custom.background ?? page.background),
+        charts,
+        chartStyle: chartStyle(ownPage, section.custom.background ?? ownPage.background),
         problems,
       });
     } else {
       const context: RenderContext = {
         document,
-        page,
-        style,
+        page: ownPage,
+        style: ownStyle,
         fill,
         values: section.values,
         related: section.related,
-        charts: job.charts ?? {},
+        charts,
         picture,
         problems,
       };
@@ -262,15 +285,16 @@ function renderSections(
     }
     claim({
       owner: section.owner,
+      template: own,
       values: section.values,
       furniture: !section.custom || section.custom.furniture === true,
-      background: section.custom?.background ?? page.background,
+      background: section.custom?.background ?? ownPage.background,
     });
   }
 
   if (!started) {
     document.text(emptyText, { color: page.mutedColor, size: page.fontSize + 2 });
-    claim({ owner: -1, values: job.coverValues, furniture: true, background: page.background });
+    claim({ owner: -1, template, values: job.coverValues, furniture: true, background: page.background });
   }
 
   /* --- page furniture, once every page exists --- */
@@ -278,22 +302,28 @@ function renderSections(
   const infoOn = (pageNumber: number): PageInfo => pages[pageNumber - 1] ?? pages[0]!;
   const owners = pages.map(info => info.owner);
   const fillOn = (pageNumber: number, text: string) => filler(infoOn(pageNumber).values)(text);
-  const furnished = (pageNumber: number) => infoOn(pageNumber).furniture;
+  const furnishedBy = (own: PdfTemplate) => (pageNumber: number) =>
+    infoOn(pageNumber).furniture && infoOn(pageNumber).template === own;
+  // Every template with pages in the file draws its own furniture on them, and only on them.
+  const furnishers = [...new Set(pages.map(info => info.template))];
 
   // Registered before the background: the later of two "beneath" overlays is
   // drawn under the earlier, and the paper has to be under everything.
-  if (template.watermark?.text) {
-    const watermark = template.watermark;
+  for (const own of furnishers) {
+    if (!own.watermark?.text) continue;
+    const watermark = own.watermark;
+    const ownPage = lookOf(own).page;
+    const furnished = furnishedBy(own);
     document.onEachPage(
       (doc, current) => {
         if (!furnished(current)) return;
         const text = fillOn(current, watermark.text);
         doc.drawWatermark(watermark.uppercase ? text.toUpperCase() : text, {
-          color: watermark.color ?? page.accentColor,
+          color: watermark.color ?? ownPage.accentColor,
           size: watermark.size,
           opacity: watermark.opacity,
           angle: watermark.angle,
-          family: page.family,
+          family: ownPage.family,
         });
       },
       { beneath: true },
@@ -316,16 +346,19 @@ function renderSections(
   // of letters is letterheaded on every letter, not only on the first.
   const sectionStart = (pageNumber: number) =>
     pageNumber === 1 || owners[pageNumber - 1] !== owners[pageNumber - 2];
-  renderHeader(template.header, { document, page, fillOn, picture, sectionStart, furnished });
+  for (const own of furnishers) {
+    const ownPage = lookOf(own).page;
+    const furnished = furnishedBy(own);
+    renderHeader(own.header, { document, page: ownPage, fillOn, picture, sectionStart, furnished });
 
-  const showPageNumbers = template.footer?.showPageNumbers !== false;
-  if (template.footer?.text || showPageNumbers) {
+    const showPageNumbers = own.footer?.showPageNumbers !== false;
+    if (!own.footer?.text && !showPageNumbers) continue;
     document.onEachPage((doc, current) => {
       if (!furnished(current)) return;
       const y = doc.y;
-      const size = Math.max(6, page.fontSize - 2);
-      const text = template.footer?.text ? fillOn(current, template.footer.text) : "";
-      if (text) doc.drawTextAt(text, doc.left, y, { size, color: page.mutedColor });
+      const size = Math.max(6, ownPage.fontSize - 2);
+      const text = own.footer?.text ? fillOn(current, own.footer.text) : "";
+      if (text) doc.drawTextAt(text, doc.left, y, { size, color: ownPage.mutedColor });
 
       if (showPageNumbers) {
         // Numbered within the record's own section, so a batch of fifty
@@ -336,9 +369,9 @@ function renderSections(
         const number = owners.slice(0, current).filter(entry => entry === owner).length;
         const count = owners.filter(entry => entry === owner).length;
         const label = `Page ${number} of ${count}`;
-        doc.drawTextAt(label, doc.left + doc.contentWidth - measureText(label, page.family, size), y, {
+        doc.drawTextAt(label, doc.left + doc.contentWidth - measureText(label, ownPage.family, size), y, {
           size,
-          color: page.mutedColor,
+          color: ownPage.mutedColor,
         });
       }
     });

@@ -260,10 +260,35 @@ export const TRANSITIONS: { transition: Transition; label: string }[] = [
 /** What a slide carries besides what is on it: notes for the speaker, and how it comes in. */
 export type SlideOptions = { notes?: string; transition?: Transition };
 
+/**
+ * A template placed in the deck: its slides — a title slide, then one per
+ * record its filter matches — drawn where the section sits in the running
+ * order, in the template's own look. A deck built from nothing is custom
+ * slides and sections; a deck built on a template can have sections too.
+ */
+export type DeckSection = {
+  id: string;
+  /** The deck (or document) template's sys_id. */
+  template: string;
+  /** Its name when it was placed: what the builder calls it before it has loaded, or once it is gone. */
+  name?: string;
+  /** The section's `{{deck.title}}`. Absent is the template's name. */
+  title?: string;
+  /** An encoded query on the template's table. */
+  query: string;
+  orderBy?: string;
+  limit: number;
+};
+
+export const MAX_SECTIONS = 20;
+export const MAX_SECTION_RECORDS = 200;
+
 export type PresentationBody = {
   version: 1;
   slides: CustomSlide[];
   order: SlideEntry[];
+  /** Templates placed in the deck, each drawn where its section sits in the order. */
+  sections?: DeckSection[];
   /** How every slide comes in, unless it says otherwise. Absent is a fade. */
   transition?: Transition;
   /**
@@ -284,6 +309,17 @@ export const MAX_PRESENTATION_BODY_LENGTH = 3_000_000;
 
 export const customKey = (id: string): string => `custom:${id}`;
 export const isCustomKey = (key: string): boolean => key.startsWith("custom:");
+
+/**
+ * A section's own place in the order — its header in the slide sorter, never
+ * shown — and the prefix of every slide it draws: `section:<id>:cover:1`,
+ * `section:<id>:record:<sys_id>:1`. The header keeps the section where it was
+ * put even while its filter matches nothing.
+ */
+export const sectionKey = (id: string): string => `section:${id}`;
+export const isSectionKey = (key: string): boolean => /^section:[^:]+$/.test(key);
+/** The section a slide key belongs to, or null for the deck's own slides and custom ones. */
+export const sectionOf = (key: string): string | null => /^section:([^:]+)/.exec(key)?.[1] ?? null;
 
 /** A short random id: unique within a presentation, which is all it has to be. */
 export function newId(): string {
@@ -484,6 +520,24 @@ function readChartLook(value: Record<string, unknown>): Partial<ChartElement> {
   };
 }
 
+function readSection(value: unknown): DeckSection | null {
+  if (!isRecord(value)) return null;
+  const template = String(value.template ?? "");
+  if (!/^[0-9a-f]{32}$/.test(template)) return null;
+  const name = String(value.name ?? "").trim().slice(0, 100);
+  const title = String(value.title ?? "").slice(0, 200);
+  const orderBy = String(value.orderBy ?? "").trim().slice(0, 120);
+  return {
+    id: id(value.id),
+    template,
+    ...(name ? { name } : {}),
+    ...(title.trim() ? { title } : {}),
+    query: String(value.query ?? "").slice(0, 4000),
+    ...(orderBy ? { orderBy } : {}),
+    limit: Math.trunc(num(value.limit, 20, 1, MAX_SECTION_RECORDS)),
+  };
+}
+
 function readSlide(value: unknown): CustomSlide | null {
   if (!isRecord(value)) return null;
   const background = optionalColor(value.background);
@@ -527,6 +581,16 @@ export function readPresentation(raw: unknown): PresentationBody {
       return true;
     });
 
+  const sectionIds = new Set<string>();
+  const sections = (Array.isArray(source.sections) ? source.sections : [])
+    .slice(0, MAX_SECTIONS)
+    .map(readSection)
+    .filter((section): section is DeckSection => {
+      if (!section || sectionIds.has(section.id)) return false;
+      sectionIds.add(section.id);
+      return true;
+    });
+
   const keys = new Set<string>();
   const order = (Array.isArray(source.order) ? source.order : [])
     .map((entry): SlideEntry | null => {
@@ -554,6 +618,7 @@ export function readPresentation(raw: unknown): PresentationBody {
     version: 1,
     slides,
     order,
+    ...(sections.length ? { sections } : {}),
     ...(transition ? { transition } : {}),
     ...(Object.keys(options).length ? { options } : {}),
   };
@@ -627,8 +692,12 @@ export function arrangeKeys<T extends Keyed>(
   }
   const at = (key: string) => placed.findIndex(entry => entry.item.key === key);
 
-  // `cover:1`, `record:<id>:1` — the part before the first colon is the kind.
-  const kind = (key: string) => key.slice(0, key.indexOf(":"));
+  // `cover:1`, `record:<id>:1` — the part before the first colon is the kind;
+  // a section's slides are kinds of their own: `section:<id>:record`.
+  const kind = (key: string) => {
+    const parts = key.split(":");
+    return parts[0] === "section" ? parts.slice(0, 3).join(":") : parts[0]!;
+  };
   const neighbour = (index: number, step: 1 | -1, same: boolean): number => {
     for (let other = index + step; other >= 0 && other < generated.length; other += step) {
       const key = generated[other]!.key;

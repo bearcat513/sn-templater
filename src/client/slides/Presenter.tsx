@@ -17,7 +17,7 @@ type Props = {
     onExit: () => void
     onExport: () => void
     /** Opens the record behind a slide on the platform. */
-    recordUrl?: (owner: number) => string | null
+    recordUrl?: (slide: Slide) => string | null
     /** A presentation's own running order, hidden slides already left out. Absent is the deck as drawn. */
     slides?: Slide[]
     startAt?: number
@@ -188,7 +188,7 @@ export function Presenter({
     }, [go, forward, back, count, overview, onExit, toggleFullscreen])
 
     const slide = slides[index]
-    const link = slide && slide.owner >= 0 ? recordUrl?.(slide.owner) : null
+    const link = slide && slide.owner >= 0 ? recordUrl?.(slide) : null
     const steps = stepsOf(slide)
     const next = slides[index + 1]
 

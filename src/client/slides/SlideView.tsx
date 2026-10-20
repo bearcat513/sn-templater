@@ -48,6 +48,7 @@ import type { Slide } from './paginate'
  */
 
 type Props = {
+    /** The deck's template. A slide from a section placed in the deck brings its own. */
     template: PdfTemplate
     slide: Slide
     /** Shown width in CSS pixels. The height follows the paper. */
@@ -65,7 +66,8 @@ type Props = {
     interactive?: boolean
 }
 
-export function SlideView({ template, slide, width, className, editing, builds, interactive }: Props) {
+export function SlideView({ template: deckTemplate, slide, width, className, editing, builds, interactive }: Props) {
+    const template = slide.template ?? deckTemplate
     const page = resolvePage(template)
     const style = resolveStyle(template, page.fontSize)
     const sheet = pageDimensions(page.size, page.landscape)

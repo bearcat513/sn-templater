@@ -6,8 +6,11 @@ import {
     isCustomKey,
     newId,
     orderOf,
+    sectionKey,
+    sectionOf,
     type ChartElement,
     type CustomSlide,
+    type DeckSection,
     type ImageElement,
     type LineElement,
     type PresentationBody,
@@ -72,6 +75,51 @@ export function updateSlide(
     change: (slide: CustomSlide) => CustomSlide
 ): PresentationBody {
     return { ...body, slides: body.slides.map(slide => (slide.id === id ? change(slide) : slide)) }
+}
+
+/* -------------------------------- sections ------------------------------- */
+
+/** A template placed at `at`: its header goes there, and its slides follow it as they load. */
+export function insertSection(body: PresentationBody, slides: Slide[], at: number, section: DeckSection): PresentationBody {
+    const order = orderOf(slides)
+    order.splice(Math.max(0, Math.min(at, order.length)), 0, { key: sectionKey(section.id) })
+    return { ...body, sections: [...(body.sections ?? []), section], order }
+}
+
+export function updateSection(body: PresentationBody, id: string, change: Partial<DeckSection>): PresentationBody {
+    return { ...body, sections: (body.sections ?? []).map(section => (section.id === id ? { ...section, ...change } : section)) }
+}
+
+/** A section taken out, with its slides and their notes. The template itself is not touched. */
+export function removeSection(body: PresentationBody, slides: Slide[], id: string): PresentationBody {
+    const options = Object.fromEntries(Object.entries(body.options ?? {}).filter(([key]) => sectionOf(key) !== id))
+    return {
+        ...body,
+        sections: (body.sections ?? []).filter(section => section.id !== id),
+        order: orderOf(slides.filter(slide => sectionOf(slide.key) !== id)),
+        options,
+    }
+}
+
+/**
+ * A section moved as one: its header and every slide of its own, in the order
+ * they are in, to the gap before `gap` (an index into the slides as they are).
+ */
+export function moveSection(body: PresentationBody, slides: Slide[], id: string, gap: number): PresentationBody {
+    const order = orderOf(slides)
+    const mine = (key: string) => sectionOf(key) === id
+    const at = order.slice(0, Math.max(0, gap)).filter(entry => !mine(entry.key)).length
+    const rest = order.filter(entry => !mine(entry.key))
+    rest.splice(at, 0, ...order.filter(entry => mine(entry.key)))
+    return { ...body, order: rest }
+}
+
+/** Every slide of a section hidden from the show, or shown again. */
+export function hideSection(body: PresentationBody, slides: Slide[], id: string, hidden: boolean): PresentationBody {
+    return {
+        ...body,
+        order: orderOf(slides.map(slide => (sectionOf(slide.key) === id && !slide.marker ? { ...slide, hidden } : slide))),
+    }
 }
 
 /* -------------------------------- elements ------------------------------- */
