@@ -4,6 +4,8 @@ A ServiceNow SDK app for turning records into **formatted PDFs**, including thei
 
 The templating engine is ported from [cpq-vibes](https://github.com/bearcat513/cpq-vibes): a hand-written PDF 1.7 writer, a JSON block language, and `{{token}}` substitution. Its one runtime dependency is d3, which the chart engine uses for scales, tick values and grouping; d3 draws nothing itself. The UI uses only React and components written in this repo, with no UI or component libraries.
 
+New here? Start with [Getting started](docs/getting-started.md), then [Generating a template from code](docs/templates-from-code.md).
+
 ## How it works
 
 - A **template** is a record on `x_1040823_template_template` with three parts:
