@@ -2,7 +2,7 @@
 
 A ServiceNow SDK app for turning records into **formatted PDFs**, including their related lists, and into **slide decks** that can be presented in the browser or exported as PDF.
 
-The templating engine is ported from [cpq-vibes](https://github.com/bearcat513/cpq-vibes): a hand-written PDF 1.7 writer, a JSON block language, and `{{token}}` substitution. It has no runtime dependencies. The UI uses only React and components written in this repo, with no UI or component libraries.
+The templating engine is ported from [cpq-vibes](https://github.com/bearcat513/cpq-vibes): a hand-written PDF 1.7 writer, a JSON block language, and `{{token}}` substitution. Its one runtime dependency is d3, which the chart engine uses for scales, tick values and grouping; d3 draws nothing itself. The UI uses only React and components written in this repo, with no UI or component libraries.
 
 ## How it works
 
@@ -58,6 +58,7 @@ A chart block can draw any of these too, from figures written into the block or 
 - **Make one** with **New chart** on the Templates page. The chart designer counts live as you change it and previews the chart in a document and on a slide. **Download PDF** saves either view.
 - **Put it in a document or deck template** with a **Chart** block set to **A chart template**. The block sets the height and, optionally, its own title. Everything else comes from the chart template.
 - **Put it on a custom slide** with **Insert › Chart** in the slide builder. The chart fills the box you draw, title and all. From a script: `slide.chart('Open P1s by group', { x, y, w, h })`.
+- **Change its look on one slide:** the inspector's **On this slide** section can draw the same figures as another kind that takes the same fields (column, bar, line, area, pie, donut and funnel switch among themselves; stacked column, heatmap and Sankey do too), and set its own title, series colour, figures shown or hidden, text size, a card behind it with an outline, and whether the "only some records were counted" note shows. None of these change what is counted, and the format painter carries them from one chart to another.
 - Placed charts are references. Change the chart template once and every document, deck and presentation that shows it changes too. It is counted again each time one of them opens.
 - **How it counts:** with the Aggregate API, as the viewer, so a chart of 100,000 records is one request and ACLs apply. If an instance refuses that API to someone, Templater reads up to 2,000 rows through the Table API instead, counts them in the browser, and prints under the chart how many it counted.
 
@@ -152,16 +153,24 @@ src/client/engine/     pure engine (pdf.ts, pdfFonts.ts, image.ts, imageFile.ts 
   template.ts          block language, starters
   gallery.ts           the ready-made templates (source of the installed starters)
   render.ts            PDF renderer: many records, cover, per-page furniture; arranged decks
+  chart.ts             chart layout (every kind) and drawing into the PDF
   presentation.ts      saved presentations: custom slides, running order, layouts
   freeform.ts          custom slides into the PDF, and the geometry the screen shares
   validate.ts          drop-don't-refuse body reader
+  tokens.ts            {{token}} substitution
   vocabulary.ts        tokens to field paths and values
-src/client/data/       loader: fetches only the fields and related lists a template uses
+  links.ts             which link addresses are allowed, made absolute
+src/client/data/       loader: fetches only the fields and related lists a template uses;
+                       deck and section loading; chart templates, counted and cached
+src/client/services/   Table, Aggregate and scripted REST calls
 src/client/slides/     HTML renderer of the same template, custom slides, and the presenter
-src/client/designer/   template designer (token panel, blocks, live preview)
+src/client/designer/   template and chart designers (token panel, blocks, live preview)
 src/client/builder/    slide builder: canvas, slide list, ribbon, inspector, undo
-src/client/views/      Templates, Editor, Export, Present, Builder
+src/client/views/      Templates, Editor, Chart editor, Export, Present, Builder
 src/client/ui/         custom components (no UI libraries)
+src/client/styles/     CSS, with design tokens in tokens.css
+src/client/debug/      developer tools (see Debugging)
+src/client/platform.ts restores Array.from, which the platform's Prototype.js replaces
 src/server/            scripted REST: /schema/{table}, /tables, /me
 src/fluent/            table, roles, ACLs, REST API, UI page, menu, UI actions
 src/fluent/templates/  GENERATED starter template records (npm run starters)
@@ -256,6 +265,7 @@ current.work_notes = '[code]<a href="' + url + '" target="_blank">Incident repor
 | `line({ x1, y1, x2, y2, stroke, strokeWidth, dashed, arrowStart, arrowEnd })` | A straight line. |
 | `table(rows, style)` | A grid. `rows` is an array of arrays of cell text. Up to 20 × 10. |
 | `image(dataUrl, style)` | A PNG or JPEG `data:` URL. |
+| `chart(template, style)` | A chart template (sys_id, name or GlideRecord), counted each time the presentation opens. The box defaults to the area inside the margins. To change its look on this slide only: `chart` (another kind of the same shape, e.g. `'bar'`), `title`, `color`, `showValues`, `size`, `fill` and `stroke` (a card behind it), `hideTitle`, `hideNote`. |
 | `name()`, `background()`, `furniture()`, `notes()`, `transition()` | The slide's own settings. |
 
 Positions are in points from the top left: `slide.width` × `slide.height` (960 × 540 for 16:9). `slide.left`, `slide.top`, `slide.innerWidth` and `slide.innerHeight` give the area inside the deck's margins.
@@ -329,8 +339,9 @@ The property is an app record, so each deploy resets it to `false`.
 ## Build and deploy
 
 ```bash
-npm run build
-npm run deploy
+npm run build    # regenerates the starters, then now-sdk build
+npm run deploy   # now-sdk install
+npm run dev      # local dev server (now-sdk run dev)
 ```
 
 ## Limits
