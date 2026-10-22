@@ -258,7 +258,12 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
             {children}
             <div className="tp-toasts" aria-live="polite">
                 {toasts.map(toast => (
-                    <div key={toast.id} className={cx('tp-toast', `tp-toast--${toast.tone}`)}>
+                    <div
+                        key={toast.id}
+                        className={cx('tp-toast', `tp-toast--${toast.tone}`)}
+                        // A failure interrupts; anything else waits its turn.
+                        role={toast.tone === 'critical' ? 'alert' : 'status'}
+                    >
                         <Icon name={toast.tone === 'critical' ? 'alert' : toast.tone === 'info' ? 'info' : 'check'} />
                         <span>{toast.message}</span>
                         <IconButton

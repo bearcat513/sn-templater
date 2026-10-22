@@ -1,0 +1,15 @@
+dist/
+target/
+.now/
+node_modules/
+@types/
+src/fluent/generated/
+src/fluent/templates/starters/
+src/fluent/templates/starters.now.ts
+src/client/engine/fonts/data/
+bun.lock
+*.md
+src/client/index.html
+# Classic Rhino scripts (script includes, Flow action steps), hand-formatted ES5
+src/fluent/script-includes/*.server.js
+src/fluent/actions/scripts/*.js

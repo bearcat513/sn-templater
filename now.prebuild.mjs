@@ -23,12 +23,12 @@ export default async ({ rootDir, config, fs, path, logger, registerExplicitId })
     // Split a stylesheet before it gets that big.
     const INLINE_CSS_LIMIT = 14 * 1024
     const oversized = (await glob(path.join(clientDir, '**', '*.css'), { fs })).filter(
-        (file) => fs.statSync(file).size > INLINE_CSS_LIMIT
+        file => fs.statSync(file).size > INLINE_CSS_LIMIT
     )
     if (oversized.length) {
         throw new Error(
             `Stylesheets over ${INLINE_CSS_LIMIT} bytes would not be inlined into the bundle: ` +
-                oversized.map((file) => `${path.relative(rootDir, file)} (${fs.statSync(file).size} bytes)`).join(', ') +
+                oversized.map(file => `${path.relative(rootDir, file)} (${fs.statSync(file).size} bytes)`).join(', ') +
                 '. Split them into smaller files.'
         )
     }
@@ -78,7 +78,7 @@ export default async ({ rootDir, config, fs, path, logger, registerExplicitId })
         sourcemap: true,
     })
     // Print the build results
-    rollupOutput.output.forEach((file) => {
+    rollupOutput.output.forEach(file => {
         if (file.type === 'asset') {
             logger.info(`Bundled asset: ${file.fileName} (${file.source.length} bytes)`)
         } else if (file.type === 'chunk') {

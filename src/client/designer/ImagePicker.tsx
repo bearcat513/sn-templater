@@ -98,7 +98,9 @@ export function ImagePicker({ value, onChange, hint }: Props) {
                             </Button>
                         )}
                     </div>
-                    <p className="tp-subtle tp-truncate">{summary || 'PNG or JPEG. Drop one here, or choose a file.'}</p>
+                    <p className="tp-subtle tp-truncate">
+                        {summary || 'PNG or JPEG. Drop one here, or choose a file.'}
+                    </p>
                 </div>
                 <input
                     ref={input}

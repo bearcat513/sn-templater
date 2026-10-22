@@ -173,7 +173,9 @@ export function SelectionForm({
                                 value={selection.orderBy.replace(/^-/, '')}
                                 placeholder="sys_updated_on"
                                 onChange={event =>
-                                    patch({ orderBy: `${descending && event.target.value ? '-' : ''}${event.target.value.trim()}` })
+                                    patch({
+                                        orderBy: `${descending && event.target.value ? '-' : ''}${event.target.value.trim()}`,
+                                    })
                                 }
                             />
                         </Field>

@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react'
+import { FORMATTERS } from '../engine/tokens'
 import { CONTEXT_TOKENS, LIST_TOKENS, type SchemaField } from '../engine/vocabulary'
 import { useAsync } from '../hooks/useAsync'
 import { SchemaService, type TableSchema } from '../services/schema'
@@ -13,6 +14,17 @@ import { useTokenTarget } from './TokenTarget'
  * A reference field opens to show the fields of the record it points at, and
  * those open in turn — which is all dot-walking is: `record.caller_id.manager.email`.
  */
+/** Tokens worth copying the shape of: dot-walking, stored values, and formatters. */
+const EXAMPLES = [
+    { token: 'record.caller_id.email', description: 'A field of a referenced record (dot-walking)' },
+    { token: 'raw.state', description: 'The stored value, not the label' },
+    { token: 'record.opened_at | date:"d MMM yyyy"', description: 'A date, formatted' },
+    { token: 'record.assigned_to | default:"Unassigned"', description: 'Words for an empty field' },
+    { token: 'record.short_description | truncate:60', description: 'Cut short with …' },
+    { token: 'record.priority | upper', description: 'In capitals' },
+    { token: 'record.business_duration | duration', description: 'A duration as 2d 4h' },
+]
+
 export function TokenPanel({ schema }: { schema: TableSchema }) {
     const [term, setTerm] = useState('')
     const target = useTokenTarget()
@@ -61,9 +73,35 @@ export function TokenPanel({ schema }: { schema: TableSchema }) {
                     ))}
                 </ul>
                 <p className="tp-tokens__hint">
-                    <code>record.</code> prints what people see; <code>raw.</code> prints the stored value — a
-                    sys_id, a choice's value.
+                    <code>record.</code> prints what people see; <code>raw.</code> prints the stored value — a sys_id, a
+                    choice's value.
                 </p>
+
+                <details className="tp-tokens__examples">
+                    <summary className="tp-tokens__group">Examples and formatters</summary>
+                    <p className="tp-tokens__hint">
+                        Add a formatter after a bar to change how a value prints. Click one to insert it.
+                    </p>
+                    <ul className="tp-tokens__list">
+                        {EXAMPLES.map(example => (
+                            <li key={example.token}>
+                                <button type="button" className="tp-token" onClick={() => use(example.token)}>
+                                    <span className="tp-token__label">{example.description}</span>
+                                    <code className="tp-token__code">{example.token}</code>
+                                </button>
+                            </li>
+                        ))}
+                    </ul>
+                    <h5 className="tp-tokens__group">Every formatter</h5>
+                    <ul className="tp-tokens__formatters">
+                        {Object.entries(FORMATTERS).map(([name, formatter]) => (
+                            <li key={name}>
+                                <code>| {formatter.example}</code>{' '}
+                                <span className="tp-subtle">{formatter.describe}</span>
+                            </li>
+                        ))}
+                    </ul>
+                </details>
             </div>
         </div>
     )

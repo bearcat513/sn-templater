@@ -171,7 +171,8 @@ Templater.prototype = {
     /**
      * Copies a template, the way "Start from" does in the New template dialog,
      * and returns the copy's sys_id. `changes` takes the same fields as
-     * createTemplate; the name defaults to "<name> (copy)".
+     * createTemplate; the name defaults to "<name> (copy)". The copy starts from
+     * the published body, with copies of the pictures attached to the original.
      */
     copyTemplate: function (template, changes) {
         var source = this._requireTemplate(template, 'Templater.copyTemplate');
@@ -182,7 +183,10 @@ Templater.prototype = {
         for (var i = 0; i < fields.length; i++) record.setValue(fields[i], source.getValue(fields[i]));
         record.setValue('name', String(source.getValue('name')) + ' (copy)');
         this._writeTemplate(record, changes);
-        return this._insert(record, 'Templater.copyTemplate');
+        var copyId = this._insert(record, 'Templater.copyTemplate');
+        // Pictures are attachments of the template, named in its body: the copy gets its own.
+        new GlideSysAttachment().copy(Templater.TEMPLATE_TABLE, source.getUniqueValue(), Templater.TEMPLATE_TABLE, copyId);
+        return copyId;
     },
 
     /** Changes a template. `changes` takes the same fields as createTemplate. Returns its sys_id. */

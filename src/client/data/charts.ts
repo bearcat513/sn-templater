@@ -35,10 +35,18 @@ export type Measured = { points: ChartDatum[]; total: number; read?: number }
  */
 export async function measureChart(table: string, query: string, spec: ChartTemplate): Promise<Measured> {
     const shape = chartShape(spec.chart)
-    if (!spec.groupBy) throw new Error(shape === 'spans' ? 'it has no field to name each bar by' : 'it has no field to group by')
+    if (!spec.groupBy)
+        throw new Error(shape === 'spans' ? 'it has no field to name each bar by' : 'it has no field to group by')
     if (shape === 'spans') {
         if (!spec.start) throw new Error('it has no start date')
-        const read = await AggregateService.spans({ table, query, label: spec.groupBy, start: spec.start, end: spec.end, limit: MAX_SPANS })
+        const read = await AggregateService.spans({
+            table,
+            query,
+            label: spec.groupBy,
+            start: spec.start,
+            end: spec.end,
+            limit: MAX_SPANS,
+        })
         return { points: spanPoints(read.spans), total: read.total, ...(read.read ? { read: read.read } : {}) }
     }
     if (shape === 'pairs' && !spec.thenBy) throw new Error('it has no second field to pair the first with')
@@ -51,7 +59,11 @@ export async function measureChart(table: string, query: string, spec: ChartTemp
         field: spec.field,
     })
     return {
-        points: grouped.groups.map(group => ({ label: group.label, value: group.value, ...(group.to !== undefined ? { to: group.to } : {}) })),
+        points: grouped.groups.map(group => ({
+            label: group.label,
+            value: group.value,
+            ...(group.to !== undefined ? { to: group.to } : {}),
+        })),
         total: grouped.total,
         ...(grouped.read ? { read: grouped.read } : {}),
     }
@@ -78,7 +90,12 @@ export async function countChart(source: ChartSource): Promise<LoadedChart> {
         const note = measuredNote(spec, measured)
         return { ...base, points: chartPoints(spec, measured.points), total: measured.total, ...(note ? { note } : {}) }
     } catch (failure) {
-        return { ...base, points: [], total: 0, error: failure instanceof Error ? failure.message : 'it could not be counted' }
+        return {
+            ...base,
+            points: [],
+            total: 0,
+            error: failure instanceof Error ? failure.message : 'it could not be counted',
+        }
     }
 }
 
@@ -86,11 +103,34 @@ async function readAndCount(sysId: string): Promise<LoadedChart> {
     try {
         const record = await TemplateService.get(sysId)
         if (record.kind !== 'chart') {
-            return { sysId, name: record.name, table: record.table, spec: starterChart(), points: [], total: 0, error: 'it is not a chart template' }
+            return {
+                sysId,
+                name: record.name,
+                table: record.table,
+                spec: starterChart(),
+                points: [],
+                total: 0,
+                error: 'it is not a chart template',
+            }
         }
         const read = readChartTemplate(record.body ?? '', [], record.tableLabel)
-        if (!read.ok) return { sysId, name: record.name, table: record.table, spec: starterChart(), points: [], total: 0, error: read.error }
-        return await countChart({ sysId, name: record.name, table: record.table, query: record.query, spec: read.value })
+        if (!read.ok)
+            return {
+                sysId,
+                name: record.name,
+                table: record.table,
+                spec: starterChart(),
+                points: [],
+                total: 0,
+                error: read.error,
+            }
+        return await countChart({
+            sysId,
+            name: record.name,
+            table: record.table,
+            query: record.query,
+            spec: read.value,
+        })
     } catch (failure) {
         const message = failure instanceof Error ? failure.message : 'it could not be read'
         return { sysId, name: '', table: '', spec: starterChart(), points: [], total: 0, error: message }

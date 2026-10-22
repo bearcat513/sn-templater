@@ -7,14 +7,32 @@
  * a shape's text sits, how far in from its edge, where an arrowhead points —
  * so the exported page and the slide on screen put things in the same place.
  */
-import { layoutChartBox, drawChart, movedMark, redrawAs, type ChartData, type ChartMark, type ChartScene, type ChartStyle, type LoadedChart } from "./chart";
+import {
+  layoutChartBox,
+  drawChart,
+  movedMark,
+  redrawAs,
+  type ChartData,
+  type ChartMark,
+  type ChartScene,
+  type ChartStyle,
+  type LoadedChart,
+} from "./chart";
 import type { EmbeddableImage } from "./image";
 import { safeUrl } from "./links";
 import type { PdfDocument } from "./pdf";
 import { measureText, wrapText, type FontFamily, type FontStyle } from "./pdfFonts";
 import { chartShape } from "./template";
-import { TOKEN_PATTERN } from "./tokens";
-import type { ChartElement, CustomSlide, LineElement, ShapeElement, ShapeKind, SlideElement, TableElement } from "./presentation";
+import { fillTokens } from "./tokens";
+import type {
+  ChartElement,
+  CustomSlide,
+  LineElement,
+  ShapeElement,
+  ShapeKind,
+  SlideElement,
+  TableElement,
+} from "./presentation";
 
 /** PowerPoint's own text-box insets: a tenth of an inch at the sides, a twentieth top and bottom. */
 export const TEXT_INSET_X = 7.2;
@@ -28,15 +46,66 @@ export const DEFAULT_LINE_HEIGHT = 1.2;
  * and the SVG on screen draw the same corners.
  */
 const UNIT_SHAPES: Partial<Record<ShapeKind, [number, number][]>> = {
-  triangle: [[0.5, 0], [1, 1], [0, 1]],
-  rightTriangle: [[0, 0], [1, 1], [0, 1]],
-  diamond: [[0.5, 0], [1, 0.5], [0.5, 1], [0, 0.5]],
-  pentagon: [[0.5, 0], [1, 0.38], [0.81, 1], [0.19, 1], [0, 0.38]],
-  hexagon: [[0.25, 0], [0.75, 0], [1, 0.5], [0.75, 1], [0.25, 1], [0, 0.5]],
-  parallelogram: [[0.25, 0], [1, 0], [0.75, 1], [0, 1]],
-  trapezoid: [[0.2, 0], [0.8, 0], [1, 1], [0, 1]],
-  chevron: [[0, 0], [0.75, 0], [1, 0.5], [0.75, 1], [0, 1], [0.25, 0.5]],
-  arrow: [[0, 0.25], [0.6, 0.25], [0.6, 0], [1, 0.5], [0.6, 1], [0.6, 0.75], [0, 0.75]],
+  triangle: [
+    [0.5, 0],
+    [1, 1],
+    [0, 1],
+  ],
+  rightTriangle: [
+    [0, 0],
+    [1, 1],
+    [0, 1],
+  ],
+  diamond: [
+    [0.5, 0],
+    [1, 0.5],
+    [0.5, 1],
+    [0, 0.5],
+  ],
+  pentagon: [
+    [0.5, 0],
+    [1, 0.38],
+    [0.81, 1],
+    [0.19, 1],
+    [0, 0.38],
+  ],
+  hexagon: [
+    [0.25, 0],
+    [0.75, 0],
+    [1, 0.5],
+    [0.75, 1],
+    [0.25, 1],
+    [0, 0.5],
+  ],
+  parallelogram: [
+    [0.25, 0],
+    [1, 0],
+    [0.75, 1],
+    [0, 1],
+  ],
+  trapezoid: [
+    [0.2, 0],
+    [0.8, 0],
+    [1, 1],
+    [0, 1],
+  ],
+  chevron: [
+    [0, 0],
+    [0.75, 0],
+    [1, 0.5],
+    [0.75, 1],
+    [0, 1],
+    [0.25, 0.5],
+  ],
+  arrow: [
+    [0, 0.25],
+    [0.6, 0.25],
+    [0.6, 0],
+    [1, 0.5],
+    [0.6, 1],
+    [0.6, 0.75],
+    [0, 0.75],
+  ],
   star: starPoints(),
 };
 
@@ -200,7 +269,13 @@ export function rotatePoint(point: [number, number], center: [number, number], d
  * Code broken to a width: every space kept, and a line broken at whichever
  * character crosses the edge, as a browser does with `break-all`.
  */
-export function wrapPreserving(text: string, maxWidth: number, family: FontFamily, size: number, style: FontStyle = {}): string[] {
+export function wrapPreserving(
+  text: string,
+  maxWidth: number,
+  family: FontFamily,
+  size: number,
+  style: FontStyle = {},
+): string[] {
   if (!text) return [""];
   const lines: string[] = [];
   let current = "";
@@ -275,7 +350,19 @@ const CHART_CARD_PADDING = 12;
 export function chartElementScene(
   element: Pick<
     ChartElement,
-    "template" | "name" | "hideTitle" | "w" | "h" | "chart" | "title" | "color" | "showValues" | "size" | "fill" | "stroke" | "hideNote"
+    | "template"
+    | "name"
+    | "hideTitle"
+    | "w"
+    | "h"
+    | "chart"
+    | "title"
+    | "color"
+    | "showValues"
+    | "size"
+    | "fill"
+    | "stroke"
+    | "hideNote"
   >,
   charts: Record<string, LoadedChart>,
   style: ChartStyle,
@@ -334,7 +421,11 @@ function chartInBox(
     ...(element.showValues !== undefined ? { showValues: element.showValues } : {}),
   };
   const note = element.hideNote ? undefined : loaded.note;
-  const data: ChartData = { points: redrawAs(spec, kind, loaded.points), count: loaded.total, ...(note ? { note } : {}) };
+  const data: ChartData = {
+    points: redrawAs(spec, kind, loaded.points),
+    count: loaded.total,
+    ...(note ? { note } : {}),
+  };
   const extra = { "list.count": String(loaded.total) };
   const words = (text: string | undefined) => (text ? fillWith(fill, text, extra) : undefined);
   return layoutChartBox(
@@ -349,7 +440,7 @@ function chartInBox(
 
 /** `{{list.count}}` is the chart's, not the slide's: filled first, then the slide's own tokens. */
 const fillWith = (fill: (text: string) => string, text: string, extra: Record<string, string>): string =>
-  fill(text.replace(TOKEN_PATTERN, (token, name: string) => extra[name] ?? token));
+  fill(fillTokens(text, extra, undefined, { keepUnknown: true }));
 
 /* --------------------------------- drawing ------------------------------- */
 
@@ -397,10 +488,17 @@ function drawElement(element: SlideElement, index: number, context: FreeformCont
       const points = shapePoints(element);
       if (points) document.drawPath(points, paint);
       else
-        document.drawShape(element.shape as "rect" | "roundRect" | "ellipse", element.x, element.y, element.w, element.h, {
-          ...paint,
-          radius: cornerRadius(element.w, element.h),
-        });
+        document.drawShape(
+          element.shape as "rect" | "roundRect" | "ellipse",
+          element.x,
+          element.y,
+          element.w,
+          element.h,
+          {
+            ...paint,
+            radius: cornerRadius(element.w, element.h),
+          },
+        );
       drawText(element, context);
       break;
     }
@@ -415,7 +513,10 @@ function drawElement(element: SlideElement, index: number, context: FreeformCont
         for (const [x1, y1, x2, y2] of tableLines(element)) {
           document.drawLine(x1, y1, x2, y2, { color: element.border, thickness: 0.75 });
         }
-        document.drawShape("rect", element.x, element.y, element.w, element.h, { stroke: element.border, strokeWidth: 0.75 });
+        document.drawShape("rect", element.x, element.y, element.w, element.h, {
+          stroke: element.border,
+          strokeWidth: 0.75,
+        });
       }
       for (const cell of cells) drawText(cellShape(element, cell), context);
       break;
@@ -443,9 +544,17 @@ function drawElement(element: SlideElement, index: number, context: FreeformCont
 
     case "chart": {
       const loaded = context.charts[element.template];
-      if (!loaded) context.problems.add(`The chart “${element.name ?? element.template}” on a custom slide had not been counted yet`);
+      if (!loaded)
+        context.problems.add(
+          `The chart “${element.name ?? element.template}” on a custom slide had not been counted yet`,
+        );
       else if (loaded.error) context.problems.add(`The chart “${loaded.name}”: ${loaded.error}`);
-      drawChart(document, chartElementScene(element, context.charts, context.chartStyle, context.fill), element.x, element.y);
+      drawChart(
+        document,
+        chartElementScene(element, context.charts, context.chartStyle, context.fill),
+        element.x,
+        element.y,
+      );
       break;
     }
 

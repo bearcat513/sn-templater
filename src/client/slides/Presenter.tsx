@@ -66,10 +66,7 @@ export function Presenter({
     const page = resolvePage(template)
     const sheet = pageDimensions(page.size, page.landscape)
     const aspect = sheet.width / sheet.height
-    const slideWidth = Math.max(
-        120,
-        Math.floor(Math.min(stageSize.width - 32, (stageSize.height - 32) * aspect))
-    )
+    const slideWidth = Math.max(120, Math.floor(Math.min(stageSize.width - 32, (stageSize.height - 32) * aspect)))
 
     const count = slides.length
     /** To a slide: forward arrives with nothing built yet, back arrives finished, as PowerPoint does. */
@@ -289,7 +286,11 @@ export function Presenter({
             {notesOpen && !overview && (
                 <div className="tp-presenter__notes" aria-label="Speaker notes">
                     <div className="tp-presenter__notes-text">
-                        {slide?.notes?.trim() ? slide.notes : <span className="tp-presenter__notes-empty">No notes for this slide.</span>}
+                        {slide?.notes?.trim() ? (
+                            slide.notes
+                        ) : (
+                            <span className="tp-presenter__notes-empty">No notes for this slide.</span>
+                        )}
                     </div>
                     <div className="tp-presenter__notes-next">
                         {steps > step ? (

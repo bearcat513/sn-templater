@@ -1,8 +1,8 @@
+import { openTemplate } from './templates'
 import type { LoadedChart } from '../engine/chart'
 import { MAX_SECTION_RECORDS, type DeckSection } from '../engine/presentation'
 import type { RenderJob } from '../engine/render'
 import { blankDeck, type PdfTemplate } from '../engine/template'
-import { readTemplate } from '../engine/validate'
 import { SchemaService, type SessionContext, type TableSchema } from '../services/schema'
 import type { PresentationRecord } from '../services/presentations'
 import { TemplateService, type TemplateRecord } from '../services/templates'
@@ -39,7 +39,7 @@ export async function loadDeck(
 ): Promise<LoadedDeck> {
     const record = await TemplateService.get(source.templateId)
     const schema = await SchemaService.table(record.table)
-    const read = readTemplate(record.body ?? '', record.kind, schema.fields)
+    const read = await openTemplate(record, schema.fields)
     if (!read.ok) throw new Error(`“${record.name}” could not be read: ${read.error}`)
     const { job, matched } = await loadRecords({
         template: read.value,
@@ -99,7 +99,10 @@ export async function loadSection(section: DeckSection, session: SessionContext)
     }
 }
 
-export async function loadSections(sections: DeckSection[], session: SessionContext): Promise<Record<string, LoadedSection>> {
+export async function loadSections(
+    sections: DeckSection[],
+    session: SessionContext
+): Promise<Record<string, LoadedSection>> {
     const loaded = await Promise.all(sections.map(section => loadSection(section, session)))
     return Object.fromEntries(sections.map((section, index) => [section.id, loaded[index]!]))
 }
@@ -163,7 +166,10 @@ export function assemble(
         generated.push(sectionMarker(section, index, job, section.name || deck?.record.name || 'Template'))
         if (!deck) return
         // Drawn on the deck's sheet, whatever size the template was made for.
-        const template: PdfTemplate = { ...deck.template, page: { ...deck.template.page, size: frame.page.size, landscape: frame.page.landscape } }
+        const template: PdfTemplate = {
+            ...deck.template,
+            page: { ...deck.template.page, size: frame.page.size, landscape: frame.page.landscape },
+        }
         const sectionJob = withCharts(deck.job, charts)
         generated.push(...paginate(template, sectionJob, { section, coverOwner: sectionCoverOwner(index), ownerBase }))
         ownerBase += deck.job.records.length

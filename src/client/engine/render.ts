@@ -19,7 +19,7 @@ import { decodeImage, imageBox, type EmbeddableImage } from "./image";
 import { recordUrl, safeUrl } from "./links";
 import { PdfDocument, DEFAULT_MARGINS, type TableCell, type TableColumn } from "./pdf";
 import { measureText, type FontFamily } from "./pdfFonts";
-import type { CustomSlide } from "./presentation";
+import { expandBlocks } from "./expand";
 import { fillTokens } from "./tokens";
 import {
   DEFAULT_PAGE,
@@ -40,75 +40,10 @@ import {
   type ReferenceBlock,
   type RelatedListBlock,
 } from "./template";
+export type { RelatedRows, RecordSource, RenderJob, SlideSource, PdfRenderResult } from "./types";
+import type { RelatedRows, RenderJob, SlideSource, PdfRenderResult } from "./types";
 
 /* -------------------------------- sources -------------------------------- */
-
-/** The rows behind one related-list block, for one record. */
-export type RelatedRows = {
-  /** One map per row: field path to display value. */
-  rows: Record<string, string>[];
-  /** Rows that matched, which may be more than were fetched. */
-  total: number;
-  /** Why the rows could not be read, when they could not. */
-  error?: string;
-};
-
-/** One record, as the renderer sees it: strings, and nothing it could compute with. */
-export type RecordSource = {
-  /** What the editor calls the record — its number, usually. */
-  label: string;
-  /** Every token value: record.*, raw.*, and the context tokens. */
-  values: Record<string, string>;
-  /** Related-list rows, by `relatedKey(block)`. */
-  related: Record<string, RelatedRows>;
-};
-
-export type RenderJob = {
-  /** The file's own metadata. */
-  title: string;
-  author: string;
-  subject: string;
-  records: RecordSource[];
-  /** Token values for the cover, which belongs to the batch rather than a record. */
-  coverValues: Record<string, string>;
-  /**
-   * The chart templates the template and its custom slides place, counted,
-   * by sys_id. The same for every record: a chart template counts its own
-   * table, not the record it is shown with.
-   */
-  charts?: Record<string, LoadedChart>;
-};
-
-/**
- * One slide of an arranged deck, as the renderer needs it: a run of the
- * template's blocks against a record, or a custom slide. `slides/paginate.ts`
- * makes these; a presentation puts them in its own order.
- */
-export type SlideSource = {
-  /** -1 for the cover, a record's index, or below -1 for a custom slide. */
-  owner: number;
-  blocks: PdfBlock[];
-  custom?: CustomSlide;
-  values: Record<string, string>;
-  related: Record<string, RelatedRows>;
-  /** The job's chart templates, carried with each slide for the screen, which draws a slide at a time. */
-  charts?: Record<string, LoadedChart>;
-  /**
-   * The template that draws it, when that is not the deck's own: a slide of a
-   * template placed in the deck as a section. Its blocks, type, colours,
-   * margins and furniture are that template's; the sheet stays the deck's.
-   */
-  template?: PdfTemplate;
-};
-
-export type PdfRenderResult = {
-  bytes: Uint8Array;
-  /** Tokens the template used that resolved to nothing. Rendered as blank. */
-  unknownTokens: string[];
-  /** Pictures and related lists that could not be drawn, each as a sentence. */
-  problems: string[];
-  pageCount: number;
-};
 
 /* ------------------------------- rendering ------------------------------- */
 
@@ -255,7 +190,12 @@ function renderSections(
     started = true;
     const own = section.template ?? template;
     const { page: ownPage, style: ownStyle } = lookOf(own);
-    document.setLayout({ margins: ownPage.margins, family: ownPage.family, fontSize: ownPage.fontSize, color: ownPage.textColor });
+    document.setLayout({
+      margins: ownPage.margins,
+      family: ownPage.family,
+      fontSize: ownPage.fontSize,
+      color: ownPage.textColor,
+    });
     const fill = filler(section.values);
     const charts = section.charts ?? job.charts ?? {};
     if (section.custom) {
@@ -281,7 +221,7 @@ function renderSections(
         picture,
         problems,
       };
-      for (const block of section.blocks) renderBlock(block, context);
+      for (const block of expandBlocks(section.blocks, section.values, section.related)) renderBlock(block, context);
     }
     claim({
       owner: section.owner,
@@ -344,8 +284,7 @@ function renderSections(
 
   // "First page only" means the first page of each record's section: a batch
   // of letters is letterheaded on every letter, not only on the first.
-  const sectionStart = (pageNumber: number) =>
-    pageNumber === 1 || owners[pageNumber - 1] !== owners[pageNumber - 2];
+  const sectionStart = (pageNumber: number) => pageNumber === 1 || owners[pageNumber - 1] !== owners[pageNumber - 2];
   for (const own of furnishers) {
     const ownPage = lookOf(own).page;
     const furnished = furnishedBy(own);
@@ -536,7 +475,13 @@ function renderBlock(block: PdfBlock, context: RenderContext): void {
         if (column.heading) {
           document.text(
             fill(column.heading),
-            { size: page.fontSize - 1.5, bold: true, color: page.mutedColor, align: alignOf(column.align), spaceAfter: 2 },
+            {
+              size: page.fontSize - 1.5,
+              bold: true,
+              color: page.mutedColor,
+              align: alignOf(column.align),
+              spaceAfter: 2,
+            },
             { x, width },
           );
         }
@@ -677,7 +622,9 @@ function renderBlock(block: PdfBlock, context: RenderContext): void {
       if (!shown.trim()) break;
       const url = safeUrl(address, context.values["url.instance"]);
       if (address.trim() && !url) {
-        context.problems.add(`A link to “${address.slice(0, 80)}” is not a web, mail or phone address, so it prints as text`);
+        context.problems.add(
+          `A link to “${address.slice(0, 80)}” is not a web, mail or phone address, so it prints as text`,
+        );
       }
       document.text(shown, {
         size: block.size ?? page.fontSize,
@@ -807,7 +754,12 @@ function renderReference(block: ReferenceBlock, context: RenderContext): void {
   const sysId = context.values[`raw.${block.field}`] ?? "";
   if (!sysId.trim()) {
     if (block.emptyText) {
-      document.text(fill(block.emptyText), { size: page.fontSize - 0.5, italic: true, color: page.mutedColor, spaceAfter: 6 });
+      document.text(fill(block.emptyText), {
+        size: page.fontSize - 0.5,
+        italic: true,
+        color: page.mutedColor,
+        spaceAfter: 6,
+      });
     }
     return;
   }
@@ -1046,7 +998,13 @@ function renderCallout(block: Extract<PdfBlock, { type: "callout" }>, context: R
 
   const x = document.left + CARD_EDGE + CARD_PADDING;
   const width = document.contentWidth - CARD_EDGE - CARD_PADDING * 2;
-  const titleStyle = { size: page.fontSize, bold: true, color, spaceAfter: body.trim() ? 2 : 0, lineHeight: style.lineHeight };
+  const titleStyle = {
+    size: page.fontSize,
+    bold: true,
+    color,
+    spaceAfter: body.trim() ? 2 : 0,
+    lineHeight: style.lineHeight,
+  };
   const bodyStyle = { size: page.fontSize, color: page.textColor, lineHeight: style.lineHeight };
   const titleHeight = title ? document.text(title, titleStyle, { x, width, draw: false }) : 0;
   const bodyHeight = body.trim() ? document.text(body, bodyStyle, { x, width, draw: false }) : 0;
@@ -1110,7 +1068,12 @@ function renderRelatedList(block: RelatedListBlock, context: RenderContext): voi
 
   if (!rows.length || !block.columns.length) {
     if (block.emptyText) {
-      document.text(fill(block.emptyText, extra), { size: page.fontSize - 0.5, italic: true, color: page.mutedColor, spaceAfter: 6 });
+      document.text(fill(block.emptyText, extra), {
+        size: page.fontSize - 0.5,
+        italic: true,
+        color: page.mutedColor,
+        spaceAfter: 6,
+      });
     }
     return;
   }

@@ -55,7 +55,40 @@ export function SlideSorter({
 }: Props) {
     const [dragging, setDragging] = useState<number | null>(null)
     const [target, setTarget] = useState<number | null>(null)
+    const [announcement, setAnnouncement] = useState('')
     const list = useRef<HTMLOListElement>(null)
+
+    /** Puts focus back on a slide's button after it moved, once the list has redrawn. */
+    const refocus = (key: string, selector: string) =>
+        requestAnimationFrame(() =>
+            list.current?.querySelector<HTMLElement>(`[data-key="${CSS.escape(key)}"] ${selector}`)?.focus()
+        )
+
+    /** Alt+Up and Alt+Down move the focused slide or section, as dragging would. */
+    const onMoveKey = (event: React.KeyboardEvent, index: number) => {
+        if (!event.altKey || (event.key !== 'ArrowUp' && event.key !== 'ArrowDown')) return
+        event.preventDefault()
+        event.stopPropagation()
+        const slide = slides[index]
+        if (!slide) return
+        const up = event.key === 'ArrowUp'
+        if (slide.marker) {
+            const id = slide.marker.id
+            const last = slides.reduce((at, other, position) => (sectionOf(other.key) === id ? position : at), index)
+            // The gap before the slide above, or after the slide below the section.
+            const gap = up ? index - 1 : last + 2
+            if (gap < 0 || gap > slides.length) return
+            onMoveSection(id, gap)
+            setAnnouncement(`Moved section ${slide.label} ${up ? 'up' : 'down'}.`)
+            refocus(slide.key, '.tp-sorter__section-head')
+            return
+        }
+        const to = up ? index - 1 : index + 1
+        if (to < 0 || to >= slides.length) return
+        onMove(index, to)
+        setAnnouncement(`Moved ${slide.label} to position ${to + 1} of ${slides.length}.`)
+        refocus(slide.key, '.tp-sorter__thumb')
+    }
     let shownNumber = 0
 
     // Keep the current slide in view when it changes from elsewhere — the keyboard, a new slide.
@@ -68,7 +101,9 @@ export function SlideSorter({
     const drop = () => {
         const marker = dragging !== null ? slides[dragging]?.marker : undefined
         if (marker && target !== null) {
-            const inside = sectionOf(slides[target - 1]?.key ?? '') === marker.id && sectionOf(slides[target]?.key ?? '') === marker.id
+            const inside =
+                sectionOf(slides[target - 1]?.key ?? '') === marker.id &&
+                sectionOf(slides[target]?.key ?? '') === marker.id
             if (!inside) onMoveSection(marker.id, target)
         } else if (dragging !== null && target !== null && target !== dragging && target !== dragging + 1) {
             onMove(dragging, target > dragging ? target - 1 : target)
@@ -78,19 +113,118 @@ export function SlideSorter({
     }
 
     return (
-        <ol className="tp-sorter" ref={list} aria-label="Slides">
-            {slides.map((slide, index) => {
-                const marker = slide.marker
-                if (marker) {
-                    const own = slides.filter(other => !other.marker && sectionOf(other.key) === marker.id)
-                    const allHidden = own.length > 0 && own.every(other => other.hidden)
-                    const last = slides.reduce((at, other, position) => (sectionOf(other.key) === marker.id ? position : at), index)
+        <>
+            <p className="tp-sr-only" aria-live="polite">
+                {announcement}
+            </p>
+            <ol className="tp-sorter" ref={list} aria-label="Slides" aria-describedby="tp-sorter-help">
+                {slides.map((slide, index) => {
+                    const marker = slide.marker
+                    if (marker) {
+                        const own = slides.filter(other => !other.marker && sectionOf(other.key) === marker.id)
+                        const allHidden = own.length > 0 && own.every(other => other.hidden)
+                        const last = slides.reduce(
+                            (at, other, position) => (sectionOf(other.key) === marker.id ? position : at),
+                            index
+                        )
+                        return (
+                            <React.Fragment key={slide.key}>
+                                <Gap
+                                    index={index}
+                                    target={target}
+                                    onInsert={onInsert}
+                                    onInsertSection={onInsertSection}
+                                />
+                                <li
+                                    data-key={slide.key}
+                                    className={cx(
+                                        'tp-sorter__section',
+                                        slide.key === current && 'is-current',
+                                        dragging === index && 'is-dragging'
+                                    )}
+                                    draggable
+                                    onDragStart={event => {
+                                        event.dataTransfer.effectAllowed = 'move'
+                                        event.dataTransfer.setData('text/plain', slide.key)
+                                        setDragging(index)
+                                    }}
+                                    onDragOver={event => {
+                                        if (dragging === null) return
+                                        event.preventDefault()
+                                        const rect = event.currentTarget.getBoundingClientRect()
+                                        setTarget(event.clientY < rect.top + rect.height / 2 ? index : index + 1)
+                                    }}
+                                    onDrop={event => {
+                                        event.preventDefault()
+                                        drop()
+                                    }}
+                                    onDragEnd={() => {
+                                        setDragging(null)
+                                        setTarget(null)
+                                    }}
+                                >
+                                    <button
+                                        type="button"
+                                        className="tp-sorter__section-head"
+                                        onClick={() => onSelect(slide.key)}
+                                        onKeyDown={event => onMoveKey(event, index)}
+                                        aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
+                                        aria-current={slide.key === current ? 'true' : undefined}
+                                        aria-label={`Section: ${slide.label}, ${own.length} slide${own.length === 1 ? '' : 's'}`}
+                                    >
+                                        <Icon name="layers" size={12} />
+                                        <span className="tp-truncate">{slide.label}</span>
+                                        <span className="tp-sorter__section-count">{own.length}</span>
+                                    </button>
+                                    <div className="tp-sorter__menu">
+                                        <Menu
+                                            label={`Section actions: ${slide.label}`}
+                                            items={[
+                                                {
+                                                    label: 'Move section up',
+                                                    icon: 'chevronUp',
+                                                    disabled: index === 0,
+                                                    onSelect: () => onMoveSection(marker.id, index - 1),
+                                                },
+                                                {
+                                                    label: 'Move section down',
+                                                    icon: 'chevronDown',
+                                                    disabled: last >= slides.length - 1,
+                                                    onSelect: () => onMoveSection(marker.id, last + 2),
+                                                },
+                                                {
+                                                    label: allHidden ? 'Show its slides' : 'Hide its slides',
+                                                    icon: allHidden ? 'eye' : 'eyeOff',
+                                                    disabled: !own.length,
+                                                    onSelect: () => onHideSection(marker.id, !allHidden),
+                                                },
+                                                {
+                                                    label: 'Remove section',
+                                                    icon: 'trash',
+                                                    danger: true,
+                                                    onSelect: () => onRemoveSection(marker.id),
+                                                },
+                                            ]}
+                                        />
+                                    </div>
+                                </li>
+                            </React.Fragment>
+                        )
+                    }
+                    if (!slide.hidden) shownNumber++
+                    const custom = Boolean(slide.custom)
                     return (
                         <React.Fragment key={slide.key}>
                             <Gap index={index} target={target} onInsert={onInsert} onInsertSection={onInsertSection} />
                             <li
                                 data-key={slide.key}
-                                className={cx('tp-sorter__section', slide.key === current && 'is-current', dragging === index && 'is-dragging')}
+                                className={cx(
+                                    'tp-sorter__item',
+                                    sectionOf(slide.key) !== null && 'in-section',
+                                    slide.key === current && 'is-current',
+                                    slide.hidden && 'is-hidden',
+                                    dragging === index && 'is-dragging'
+                                )}
                                 draggable
                                 onDragStart={event => {
                                     event.dataTransfer.effectAllowed = 'move'
@@ -112,147 +246,79 @@ export function SlideSorter({
                                     setTarget(null)
                                 }}
                             >
+                                <span className="tp-sorter__number" aria-hidden="true">
+                                    {slide.hidden ? <Icon name="eyeOff" size={12} /> : shownNumber}
+                                </span>
                                 <button
                                     type="button"
-                                    className="tp-sorter__section-head"
+                                    className="tp-sorter__thumb"
                                     onClick={() => onSelect(slide.key)}
+                                    onKeyDown={event => onMoveKey(event, index)}
+                                    aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
                                     aria-current={slide.key === current ? 'true' : undefined}
-                                    aria-label={`Section: ${slide.label}, ${own.length} slide${own.length === 1 ? '' : 's'}`}
+                                    aria-label={`${slide.hidden ? 'Hidden slide' : `Slide ${shownNumber}`}: ${slide.label}`}
                                 >
-                                    <Icon name="layers" size={12} />
-                                    <span className="tp-truncate">{slide.label}</span>
-                                    <span className="tp-sorter__section-count">{own.length}</span>
+                                    <Thumb template={template} slide={slide} />
+                                    <span className="tp-sorter__label">
+                                        <Icon
+                                            name={custom ? 'type' : slide.owner === -1 ? 'slides' : 'file'}
+                                            size={11}
+                                        />
+                                        <span className="tp-truncate">
+                                            {slide.label}
+                                            {slide.parts > 1 ? ` (${slide.part}/${slide.parts})` : ''}
+                                        </span>
+                                    </span>
                                 </button>
                                 <div className="tp-sorter__menu">
                                     <Menu
-                                        label={`Section actions: ${slide.label}`}
+                                        label={`Slide actions: ${slide.label}`}
                                         items={[
                                             {
-                                                label: 'Move section up',
+                                                label: 'Move up',
                                                 icon: 'chevronUp',
                                                 disabled: index === 0,
-                                                onSelect: () => onMoveSection(marker.id, index - 1),
+                                                onSelect: () => onMove(index, index - 1),
                                             },
                                             {
-                                                label: 'Move section down',
+                                                label: 'Move down',
                                                 icon: 'chevronDown',
-                                                disabled: last >= slides.length - 1,
-                                                onSelect: () => onMoveSection(marker.id, last + 2),
+                                                disabled: index === slides.length - 1,
+                                                onSelect: () => onMove(index, index + 1),
                                             },
                                             {
-                                                label: allHidden ? 'Show its slides' : 'Hide its slides',
-                                                icon: allHidden ? 'eye' : 'eyeOff',
-                                                disabled: !own.length,
-                                                onSelect: () => onHideSection(marker.id, !allHidden),
+                                                label: slide.hidden ? 'Show slide' : 'Hide slide',
+                                                icon: slide.hidden ? 'eye' : 'eyeOff',
+                                                onSelect: () => onHide(slide.key, !slide.hidden),
                                             },
-                                            {
-                                                label: 'Remove section',
-                                                icon: 'trash',
-                                                danger: true,
-                                                onSelect: () => onRemoveSection(marker.id),
-                                            },
+                                            ...(custom
+                                                ? [
+                                                      {
+                                                          label: 'Duplicate',
+                                                          icon: 'copy' as const,
+                                                          onSelect: () => onDuplicate(slide.key),
+                                                      },
+                                                      {
+                                                          label: 'Delete slide',
+                                                          icon: 'trash' as const,
+                                                          danger: true,
+                                                          onSelect: () => onDelete(slide.key),
+                                                      },
+                                                  ]
+                                                : []),
                                         ]}
                                     />
                                 </div>
                             </li>
                         </React.Fragment>
                     )
-                }
-                if (!slide.hidden) shownNumber++
-                const custom = Boolean(slide.custom)
-                return (
-                    <React.Fragment key={slide.key}>
-                        <Gap index={index} target={target} onInsert={onInsert} onInsertSection={onInsertSection} />
-                        <li
-                            data-key={slide.key}
-                            className={cx(
-                                'tp-sorter__item',
-                                sectionOf(slide.key) !== null && 'in-section',
-                                slide.key === current && 'is-current',
-                                slide.hidden && 'is-hidden',
-                                dragging === index && 'is-dragging'
-                            )}
-                            draggable
-                            onDragStart={event => {
-                                event.dataTransfer.effectAllowed = 'move'
-                                event.dataTransfer.setData('text/plain', slide.key)
-                                setDragging(index)
-                            }}
-                            onDragOver={event => {
-                                if (dragging === null) return
-                                event.preventDefault()
-                                const rect = event.currentTarget.getBoundingClientRect()
-                                setTarget(event.clientY < rect.top + rect.height / 2 ? index : index + 1)
-                            }}
-                            onDrop={event => {
-                                event.preventDefault()
-                                drop()
-                            }}
-                            onDragEnd={() => {
-                                setDragging(null)
-                                setTarget(null)
-                            }}
-                        >
-                            <span className="tp-sorter__number" aria-hidden="true">
-                                {slide.hidden ? <Icon name="eyeOff" size={12} /> : shownNumber}
-                            </span>
-                            <button
-                                type="button"
-                                className="tp-sorter__thumb"
-                                onClick={() => onSelect(slide.key)}
-                                aria-current={slide.key === current ? 'true' : undefined}
-                                aria-label={`${slide.hidden ? 'Hidden slide' : `Slide ${shownNumber}`}: ${slide.label}`}
-                            >
-                                <Thumb template={template} slide={slide} />
-                                <span className="tp-sorter__label">
-                                    <Icon name={custom ? 'type' : slide.owner === -1 ? 'slides' : 'file'} size={11} />
-                                    <span className="tp-truncate">
-                                        {slide.label}
-                                        {slide.parts > 1 ? ` (${slide.part}/${slide.parts})` : ''}
-                                    </span>
-                                </span>
-                            </button>
-                            <div className="tp-sorter__menu">
-                                <Menu
-                                    label={`Slide actions: ${slide.label}`}
-                                    items={[
-                                        {
-                                            label: 'Move up',
-                                            icon: 'chevronUp',
-                                            disabled: index === 0,
-                                            onSelect: () => onMove(index, index - 1),
-                                        },
-                                        {
-                                            label: 'Move down',
-                                            icon: 'chevronDown',
-                                            disabled: index === slides.length - 1,
-                                            onSelect: () => onMove(index, index + 1),
-                                        },
-                                        {
-                                            label: slide.hidden ? 'Show slide' : 'Hide slide',
-                                            icon: slide.hidden ? 'eye' : 'eyeOff',
-                                            onSelect: () => onHide(slide.key, !slide.hidden),
-                                        },
-                                        ...(custom
-                                            ? [
-                                                  { label: 'Duplicate', icon: 'copy' as const, onSelect: () => onDuplicate(slide.key) },
-                                                  {
-                                                      label: 'Delete slide',
-                                                      icon: 'trash' as const,
-                                                      danger: true,
-                                                      onSelect: () => onDelete(slide.key),
-                                                  },
-                                              ]
-                                            : []),
-                                    ]}
-                                />
-                            </div>
-                        </li>
-                    </React.Fragment>
-                )
-            })}
-            <Gap index={slides.length} target={target} onInsert={onInsert} onInsertSection={onInsertSection} last />
-        </ol>
+                })}
+                <Gap index={slides.length} target={target} onInsert={onInsert} onInsertSection={onInsertSection} last />
+            </ol>
+            <p id="tp-sorter-help" className="tp-sr-only">
+                Alt+Up and Alt+Down move the focused slide or section.
+            </p>
+        </>
     )
 }
 

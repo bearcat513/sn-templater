@@ -13,7 +13,15 @@
  * It imports nothing but types: the starter script loads it straight into
  * Node, without the bundler, and a value import would not resolve there.
  */
-import type { ListColumn, PdfBlock, PdfPageSetup, PdfStyle, PdfTemplate, RelatedListBlock, TemplateKind } from "./template";
+import type {
+  ListColumn,
+  PdfBlock,
+  PdfPageSetup,
+  PdfStyle,
+  PdfTemplate,
+  RelatedListBlock,
+  TemplateKind,
+} from "./template";
 
 export type GalleryTemplate = {
   /** Stable: the record's `Now.ID` key is `starter-<key>`, so renaming one is a new record. */
@@ -117,7 +125,13 @@ const related = (block: Omit<RelatedListBlock, "type">): RelatedListBlock => ({ 
 const printedFooter = { text: "{{record.number}} · Printed {{now.datetime}} by {{user.name}}", showPageNumbers: true };
 
 /** A title slide: what the deck is, how many records, when, and by whom. */
-const titleSlide = (kicker: string, accent: string, subtitle: string, titleColor: string, muted: string): PdfBlock[] => [
+const titleSlide = (
+  kicker: string,
+  accent: string,
+  subtitle: string,
+  titleColor: string,
+  muted: string,
+): PdfBlock[] => [
   { type: "spacer", height: 104 },
   { type: "text", text: kicker, size: 14, bold: true, color: accent, spaceAfter: 6 },
   { type: "heading", text: "{{deck.title}}", size: 44, color: titleColor, spaceAfter: 8 },
@@ -258,7 +272,13 @@ const majorIncidentReview: GalleryTemplate = {
   body: {
     page: slide("dark", "#fb7185"),
     style: slideStyle("dark"),
-    cover: titleSlide("PRIORITY 1 & 2 INCIDENTS", "#fb7185", "{{deck.count}} incidents · {{now.date}}", "#f8fafc", "#94a3b8"),
+    cover: titleSlide(
+      "PRIORITY 1 & 2 INCIDENTS",
+      "#fb7185",
+      "{{deck.count}} incidents · {{now.date}}",
+      "#f8fafc",
+      "#94a3b8",
+    ),
     blocks: [
       {
         type: "text",
@@ -329,7 +349,12 @@ const changeRequest: GalleryTemplate = {
       ),
       {
         type: "stats",
-        items: [field("Risk", "risk"), field("Impact", "impact"), field("State", "state"), field("Approval", "approval")],
+        items: [
+          field("Risk", "risk"),
+          field("Impact", "impact"),
+          field("State", "state"),
+          field("Approval", "approval"),
+        ],
       },
       {
         type: "columns",
@@ -386,7 +411,11 @@ const changeRequest: GalleryTemplate = {
         field: "sysapproval",
         orderBy: "sys_created_on",
         limit: 50,
-        columns: [column("approver", "Approver", 40), column("state", "State", 25), column("sys_updated_on", "Updated", 35)],
+        columns: [
+          column("approver", "Approver", 40),
+          column("state", "State", 25),
+          column("sys_updated_on", "Updated", 35),
+        ],
         emptyText: "No approvals requested yet.",
       }),
       related({
@@ -431,7 +460,13 @@ const cabReview: GalleryTemplate = {
   body: {
     page: slide("light", "#2563eb"),
     style: slideStyle("light"),
-    cover: titleSlide("CHANGE ADVISORY BOARD", "#2563eb", "{{deck.count}} changes awaiting approval · {{now.date}}", "#0f172a", "#64748b"),
+    cover: titleSlide(
+      "CHANGE ADVISORY BOARD",
+      "#2563eb",
+      "{{deck.count}} changes awaiting approval · {{now.date}}",
+      "#0f172a",
+      "#64748b",
+    ),
     blocks: [
       {
         type: "text",
@@ -463,7 +498,11 @@ const cabReview: GalleryTemplate = {
         orderBy: "sys_created_on",
         limit: 4,
         fontSize: 12,
-        columns: [column("approver", "Approver", 46), column("state", "State", 24), column("sys_updated_on", "Updated", 30)],
+        columns: [
+          column("approver", "Approver", 46),
+          column("state", "State", 24),
+          column("sys_updated_on", "Updated", 30),
+        ],
         emptyText: "No approvals requested yet.",
       }),
     ],
@@ -565,7 +604,8 @@ const requestedItem: GalleryTemplate = {
   name: "Requested item",
   kind: "document",
   table: "sc_req_item",
-  description: "A catalog request item as a fulfilment sheet: who it is for, where it stands, its catalog tasks and approvals.",
+  description:
+    "A catalog request item as a fulfilment sheet: who it is for, where it stands, its catalog tasks and approvals.",
   query: "active=true",
   orderBy: "-opened_at",
   limit: 50,
@@ -581,12 +621,20 @@ const requestedItem: GalleryTemplate = {
       ),
       {
         type: "stats",
-        items: [field("Stage", "stage"), field("State", "state"), field("Approval", "approval"), field("Quantity", "quantity")],
+        items: [
+          field("Stage", "stage"),
+          field("State", "state"),
+          field("Approval", "approval"),
+          field("Quantity", "quantity"),
+        ],
       },
       {
         type: "columns",
         columns: [
-          { heading: "Requested for", text: "{{record.request.requested_for}}\n{{record.request.requested_for.email}}" },
+          {
+            heading: "Requested for",
+            text: "{{record.request.requested_for}}\n{{record.request.requested_for.email}}",
+          },
           { heading: "Fulfilment", text: "{{record.assignment_group}}\n{{record.assigned_to}}" },
           { heading: "Due", text: "{{record.due_date}}" },
         ],
@@ -594,7 +642,11 @@ const requestedItem: GalleryTemplate = {
       { type: "divider" },
       {
         type: "fields",
-        rows: [field("Short description", "short_description"), field("Price", "price"), field("Last updated", "sys_updated_on")],
+        rows: [
+          field("Short description", "short_description"),
+          field("Price", "price"),
+          field("Last updated", "sys_updated_on"),
+        ],
       },
       { type: "spacer", height: 8 },
       related({
@@ -618,7 +670,11 @@ const requestedItem: GalleryTemplate = {
         field: "sysapproval",
         orderBy: "sys_created_on",
         limit: 50,
-        columns: [column("approver", "Approver", 40), column("state", "State", 25), column("sys_updated_on", "Updated", 35)],
+        columns: [
+          column("approver", "Approver", 40),
+          column("state", "State", 25),
+          column("sys_updated_on", "Updated", 35),
+        ],
         emptyText: "No approvals.",
       }),
     ],

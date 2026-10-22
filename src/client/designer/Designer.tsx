@@ -5,6 +5,7 @@ import { Button, Segmented, cx } from '../ui/controls'
 import { Icon } from '../ui/icons'
 import { BlockList } from './BlockList'
 import { FooterSection, LetterheadSection, PageSection, StyleSection, WatermarkSection } from './DocumentSections'
+import { GettingStarted } from './GettingStarted'
 import { Preview } from './Preview'
 import { TokenPanel } from './TokenPanel'
 import { TokenTargetProvider } from './TokenTarget'
@@ -72,7 +73,12 @@ export function Designer({ template, onChange, kind, schema, title, previewRecor
                             <TokenPanel schema={schema} />
                         </>
                     ) : (
-                        <button type="button" className="tp-designer__rail" onClick={() => setTokensOpen(true)} aria-label="Show tokens">
+                        <button
+                            type="button"
+                            className="tp-designer__rail"
+                            onClick={() => setTokensOpen(true)}
+                            aria-label="Show tokens"
+                        >
                             <Icon name="braces" />
                             <span>Tokens</span>
                         </button>
@@ -80,6 +86,7 @@ export function Designer({ template, onChange, kind, schema, title, previewRecor
                 </aside>
 
                 <div className="tp-designer__editor">
+                    <GettingStarted template={template} kind={kind} previewRecord={previewRecord} />
                     <Segmented<Pane>
                         label="Edit"
                         value={pane}
@@ -100,7 +107,10 @@ export function Designer({ template, onChange, kind, schema, title, previewRecor
                                         value={showingCover ? 'cover' : 'record'}
                                         onChange={setPart}
                                         options={[
-                                            { value: 'record', label: kind === 'deck' ? 'Each record’s slide' : 'Each record' },
+                                            {
+                                                value: 'record',
+                                                label: kind === 'deck' ? 'Each record’s slide' : 'Each record',
+                                            },
                                             { value: 'cover', label: kind === 'deck' ? 'Title slide' : 'Cover page' },
                                         ]}
                                     />
@@ -132,7 +142,8 @@ export function Designer({ template, onChange, kind, schema, title, previewRecor
                             {showingCover && (
                                 <p className="tp-subtle">
                                     Drawn once, before the first record. Record tokens are blank here — use{' '}
-                                    <code>deck.*</code>, <code>table.*</code>, <code>now.*</code> and <code>user.*</code>.
+                                    <code>deck.*</code>, <code>table.*</code>, <code>now.*</code> and{' '}
+                                    <code>user.*</code>.
                                 </p>
                             )}
                             <BlockList
@@ -146,8 +157,18 @@ export function Designer({ template, onChange, kind, schema, title, previewRecor
                         </div>
                     ) : (
                         <div className="tp-stack tp-stack--tight">
-                            <PageSection template={template} onChange={onChange} open={section === 'page'} onToggle={() => toggle('page')} />
-                            <StyleSection template={template} onChange={onChange} open={section === 'style'} onToggle={() => toggle('style')} />
+                            <PageSection
+                                template={template}
+                                onChange={onChange}
+                                open={section === 'page'}
+                                onToggle={() => toggle('page')}
+                            />
+                            <StyleSection
+                                template={template}
+                                onChange={onChange}
+                                open={section === 'style'}
+                                onToggle={() => toggle('style')}
+                            />
                             <LetterheadSection
                                 template={template}
                                 onChange={onChange}
@@ -160,7 +181,12 @@ export function Designer({ template, onChange, kind, schema, title, previewRecor
                                 open={section === 'watermark'}
                                 onToggle={() => toggle('watermark')}
                             />
-                            <FooterSection template={template} onChange={onChange} open={section === 'footer'} onToggle={() => toggle('footer')} />
+                            <FooterSection
+                                template={template}
+                                onChange={onChange}
+                                open={section === 'footer'}
+                                onToggle={() => toggle('footer')}
+                            />
                         </div>
                     )}
                 </div>

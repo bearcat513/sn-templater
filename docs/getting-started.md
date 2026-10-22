@@ -43,7 +43,9 @@ To export several records, select them in a list and choose **Export / present w
    - Add blocks such as headings, field lists, related lists, stats, callouts and tables from the block list.
    - Drag a token from the token panel into any text, for example `{{record.short_description}}` or `{{record.caller_id.email}}`.
    - Use the picker above the preview ("Preview with a … record") to preview against real data.
-4. Click **Save**. The template is now offered for that table, and for every table that extends it.
+   - The **Getting started** checklist at the top ticks off these steps as you do them. Close it once you know your way around.
+4. Click **Save**. A new template publishes on its first save, and is then offered for that table and every table that extends it.
+5. After that, **Save** keeps a draft that only the designer sees, and **Publish** makes it what everyone uses. The **History** tab shows each published version and can restore one.
 
 A token that resolves to nothing renders blank, and the designer lists it so you can fix it.
 
@@ -70,5 +72,6 @@ var url = templater.exportUrl('Incident report', current, { absolute: true });
 
 - **No "Export with Templater" link:** the viewer needs `x_1040823_template.user`, and an active, non-chart template must exist for the table or a table it extends.
 - **Blank values in the PDF:** the viewer can't read that field, or the field is empty. The export screen lists every token that came out blank.
-- **`?` in place of characters:** PDFs use the standard 14 fonts, so text outside Latin-1 can't be printed.
+- **`?` in place of characters:** Latin, Greek and Cyrillic text is printed in an embedded font. Other scripts (CJK, Arabic, Hebrew, Indic) can't be printed yet.
+- **My changes aren't in the export:** they are saved as a draft. Publish them from the designer.
 - **Anything else:** set the system property `x_1040823_template.debug` to `true`, reload, and open the developer tools with `` Ctrl+` ``. See [Debugging](../README.md#debugging).

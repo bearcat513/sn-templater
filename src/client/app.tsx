@@ -7,6 +7,7 @@ import { setPageTitle, useRoute, type View } from './hooks/useRoute'
 import { SchemaService } from './services/schema'
 import { Icon, type IconName } from './ui/icons'
 import { Notice, Spinner, cx } from './ui/controls'
+import { SessionExpired } from './ui/SessionExpired'
 import { EditorView } from './views/EditorView'
 import { ExportView } from './views/ExportView'
 import { PresentView } from './views/PresentView'
@@ -30,10 +31,14 @@ export default function App() {
         if (session.data?.debug) log.info('app', `Debugging on for ${session.data.userName}`, session.data)
     }, [session.loading, session.data])
     useInspect('session', session.data)
-    useInspect('route', useMemo(() => ({ view: route.view, params: Object.fromEntries(route.params) }), [route]))
+    useInspect(
+        'route',
+        useMemo(() => ({ view: route.view, params: Object.fromEntries(route.params) }), [route])
+    )
 
     useEffect(() => {
-        if (route.view !== 'edit' && route.view !== 'build') setPageTitle(NAV.find(item => item.view === route.view)?.label ?? 'Templater')
+        if (route.view !== 'edit' && route.view !== 'build')
+            setPageTitle(NAV.find(item => item.view === route.view)?.label ?? 'Templater')
     }, [route.view])
 
     const active = route.view === 'edit' ? 'templates' : route.view === 'build' ? 'present' : route.view
@@ -103,12 +108,19 @@ export default function App() {
                         {route.view === 'edit' && (
                             <EditorView key={viewKey} id={route.params.get('id') ?? ''} navigate={navigate} />
                         )}
-                        {route.view === 'export' && <ExportView key={viewKey} params={route.params} navigate={navigate} />}
-                        {route.view === 'present' && <PresentView key={viewKey} params={route.params} navigate={navigate} />}
-                        {route.view === 'build' && <BuilderView key={viewKey} params={route.params} navigate={navigate} />}
+                        {route.view === 'export' && (
+                            <ExportView key={viewKey} params={route.params} navigate={navigate} />
+                        )}
+                        {route.view === 'present' && (
+                            <PresentView key={viewKey} params={route.params} navigate={navigate} />
+                        )}
+                        {route.view === 'build' && (
+                            <BuilderView key={viewKey} params={route.params} navigate={navigate} />
+                        )}
                     </SessionProvider>
                 )}
             </main>
+            <SessionExpired />
         </div>
     )
 }

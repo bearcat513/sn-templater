@@ -15,7 +15,19 @@ import {
 import { useAsync } from '../hooks/useAsync'
 import { SchemaService, type TableSchema } from '../services/schema'
 import { Combobox, type ComboOption } from '../ui/Combobox'
-import { Button, ColorField, Field, IconButton, Notice, NumberInput, Segmented, Select, Spinner, Switch, Textarea } from '../ui/controls'
+import {
+    Button,
+    ColorField,
+    Field,
+    IconButton,
+    Notice,
+    NumberInput,
+    Segmented,
+    Select,
+    Spinner,
+    Switch,
+    Textarea,
+} from '../ui/controls'
 import { Icon } from '../ui/icons'
 import { FieldPicker } from './FieldPicker'
 import { TokenField } from './TokenTarget'
@@ -74,9 +86,13 @@ export function ChartKindSelect({ value, onChange }: { value: ChartKind; onChang
  * a chart template's, which brings its own records and look with it.
  */
 export function ChartFields({ block, schema, onChange }: Props) {
-    const from: From = block.template !== undefined ? 'template' : block.related ? 'related' : 'items'
-    if (from === 'template') return <ChartTemplateFields block={block} onChange={onChange} />
+    // A separate component per source, so switching between them never changes the hooks a render calls.
+    if (block.template !== undefined) return <ChartTemplateFields block={block} onChange={onChange} />
+    return <ChartSourceFields block={block} schema={schema} onChange={onChange} />
+}
 
+function ChartSourceFields({ block, schema, onChange }: Props) {
+    const from: From = block.related ? 'related' : 'items'
     const source = block.related
     const counting = Boolean(source)
     const related = useAsync(() => SchemaService.table(source?.table ?? ''), [source?.table], Boolean(source?.table))
@@ -108,7 +124,8 @@ export function ChartFields({ block, schema, onChange }: Props) {
     const replaceItem = (index: number, changes: Partial<ChartItem>) =>
         onChange({ items: block.items.map((item, at) => (at === index ? { ...item, ...changes } : item)) })
 
-    const currentLabel = source && schema.relationships.find(entry => entry.table === source.table && entry.field === source.field)
+    const currentLabel =
+        source && schema.relationships.find(entry => entry.table === source.table && entry.field === source.field)
     const fields = related.data?.fields ?? []
     const dateFields = fields.filter(field => DATE_TYPES.has(field.type))
     const groupLabel = fields.find(field => field.name === source?.groupBy)?.label
@@ -135,7 +152,14 @@ export function ChartFields({ block, schema, onChange }: Props) {
         <div className="tp-stack">
             <ChartKindSelect value={block.chart} onChange={changeKind} />
 
-            <Field label="Title" hint={counting ? 'Drawn above the chart. {{list.count}} is how many records matched.' : 'Drawn above the chart.'}>
+            <Field
+                label="Title"
+                hint={
+                    counting
+                        ? 'Drawn above the chart. {{list.count}} is how many records matched.'
+                        : 'Drawn above the chart.'
+                }
+            >
                 <TokenField value={block.title ?? ''} onChange={title => onChange({ title: title || undefined })} />
             </Field>
 
@@ -230,7 +254,14 @@ export function ChartFields({ block, schema, onChange }: Props) {
                                 </div>
                             )}
                             <Notice kind="critical" lines={related.error ? [related.error] : []} />
-                            <Field label="Filter" hint={<>An encoded query, ANDed on — e.g. <code>active=true</code>.</>}>
+                            <Field
+                                label="Filter"
+                                hint={
+                                    <>
+                                        An encoded query, ANDed on — e.g. <code>active=true</code>.
+                                    </>
+                                }
+                            >
                                 <Textarea
                                     className="tp-mono"
                                     rows={2}
@@ -248,8 +279,9 @@ export function ChartFields({ block, schema, onChange }: Props) {
                     <p className="tp-subtle">
                         {shape === 'spans' ? (
                             <>
-                                Each bar's dates are filled in for the record and read as dates — <code>{'{{raw.start_date}}'}</code> reads the
-                                same whatever someone's date format. A bar without a start is left out.
+                                Each bar's dates are filled in for the record and read as dates —{' '}
+                                <code>{'{{raw.start_date}}'}</code> reads the same whatever someone's date format. A bar
+                                without a start is left out.
                             </>
                         ) : (
                             "Each value is filled in for the record and read as a number; one that isn't a number is left out."
@@ -265,18 +297,41 @@ export function ChartFields({ block, schema, onChange }: Props) {
                             </div>
                         )}
                         {block.items.map((item, index) => (
-                            <div key={index} className={shape === 'single' ? 'tp-pairs__row' : 'tp-pairs__row tp-pairs__row--three'}>
-                                <TokenField value={item.label} onChange={label => replaceItem(index, { label })} aria-label={`Figure ${index + 1} label`} />
+                            <div
+                                key={index}
+                                className={shape === 'single' ? 'tp-pairs__row' : 'tp-pairs__row tp-pairs__row--three'}
+                            >
+                                <TokenField
+                                    value={item.label}
+                                    onChange={label => replaceItem(index, { label })}
+                                    aria-label={`Figure ${index + 1} label`}
+                                />
                                 {shape === 'pairs' && (
-                                    <TokenField value={item.to ?? ''} onChange={to => replaceItem(index, { to })} aria-label={`Figure ${index + 1} ${secondAxis.toLowerCase()}`} />
+                                    <TokenField
+                                        value={item.to ?? ''}
+                                        onChange={to => replaceItem(index, { to })}
+                                        aria-label={`Figure ${index + 1} ${secondAxis.toLowerCase()}`}
+                                    />
                                 )}
                                 {shape === 'spans' ? (
                                     <>
-                                        <TokenField value={item.start ?? ''} onChange={start => replaceItem(index, { start })} aria-label={`Bar ${index + 1} start`} />
-                                        <TokenField value={item.end ?? ''} onChange={end => replaceItem(index, { end })} aria-label={`Bar ${index + 1} end`} />
+                                        <TokenField
+                                            value={item.start ?? ''}
+                                            onChange={start => replaceItem(index, { start })}
+                                            aria-label={`Bar ${index + 1} start`}
+                                        />
+                                        <TokenField
+                                            value={item.end ?? ''}
+                                            onChange={end => replaceItem(index, { end })}
+                                            aria-label={`Bar ${index + 1} end`}
+                                        />
                                     </>
                                 ) : (
-                                    <TokenField value={item.value} onChange={value => replaceItem(index, { value })} aria-label={`Figure ${index + 1} value`} />
+                                    <TokenField
+                                        value={item.value}
+                                        onChange={value => replaceItem(index, { value })}
+                                        aria-label={`Figure ${index + 1} value`}
+                                    />
                                 )}
                                 <IconButton
                                     icon="trash"
@@ -298,12 +353,21 @@ export function ChartFields({ block, schema, onChange }: Props) {
                                         placeholder="Add a field as a figure…"
                                         aria-label="Add a figure"
                                         onChange={field =>
-                                            onChange({ items: [...block.items, { label: field.label, value: `{{record.${field.name}}}` }] })
+                                            onChange({
+                                                items: [
+                                                    ...block.items,
+                                                    { label: field.label, value: `{{record.${field.name}}}` },
+                                                ],
+                                            })
                                         }
                                     />
                                 </div>
                             )}
-                            <Button size="sm" icon="plus" onClick={() => onChange({ items: [...block.items, { label: '', value: '' }] })}>
+                            <Button
+                                size="sm"
+                                icon="plus"
+                                onClick={() => onChange({ items: [...block.items, { label: '', value: '' }] })}
+                            >
                                 {shape === 'spans' ? 'Add a bar' : 'Empty figure'}
                             </Button>
                         </div>
@@ -313,7 +377,13 @@ export function ChartFields({ block, schema, onChange }: Props) {
 
             <div className="tp-grid tp-grid--2">
                 <Field label="Height (pt)" hint="The plot; a legend or many rows can make it taller.">
-                    <NumberInput min={40} max={600} value={block.height} onChange={height => onChange({ height: height ?? 160 })} aria-label="Chart height" />
+                    <NumberInput
+                        min={40}
+                        max={600}
+                        value={block.height}
+                        onChange={height => onChange({ height: height ?? 160 })}
+                        aria-label="Chart height"
+                    />
                 </Field>
                 {!paletteChart(block.chart) && (
                     <ColorField
@@ -367,7 +437,13 @@ function FiguresChoice({ value, onChange }: { value: From; onChange: (changes: P
  * else — its records, its grouping, its look — is the template's, and is
  * changed there, for every document and deck that shows it.
  */
-function ChartTemplateFields({ block, onChange }: { block: ChartBlock; onChange: (changes: Partial<ChartBlock>) => void }) {
+function ChartTemplateFields({
+    block,
+    onChange,
+}: {
+    block: ChartBlock
+    onChange: (changes: Partial<ChartBlock>) => void
+}) {
     const templates = useChartTemplates()
     const options = (templates.data ?? []).filter(chart => chart.active || chart.sysId === block.template)
     const chosen = options.find(chart => chart.sysId === block.template)
@@ -388,19 +464,40 @@ function ChartTemplateFields({ block, onChange }: { block: ChartBlock; onChange:
                 <Select<string>
                     value={block.template ?? ''}
                     options={[
-                        ...(chosen ? [] : [{ value: block.template ?? '', label: block.template ? 'A chart template that is not available' : 'Choose a chart' }]),
-                        ...options.map(chart => ({ value: chart.sysId, label: `${chart.name} · ${chart.tableLabel || chart.table}` })),
+                        ...(chosen
+                            ? []
+                            : [
+                                  {
+                                      value: block.template ?? '',
+                                      label: block.template
+                                          ? 'A chart template that is not available'
+                                          : 'Choose a chart',
+                                  },
+                              ]),
+                        ...options.map(chart => ({
+                            value: chart.sysId,
+                            label: `${chart.name} · ${chart.tableLabel || chart.table}`,
+                        })),
                     ]}
                     onChange={template => template && onChange({ template })}
                     aria-label="Chart template"
                 />
             </Field>
             <Notice kind="critical" lines={templates.error ? [templates.error] : []} />
-            <Field label="Title" hint="Leave empty to use the chart’s own title. {{list.count}} is how many records it counted.">
+            <Field
+                label="Title"
+                hint="Leave empty to use the chart’s own title. {{list.count}} is how many records it counted."
+            >
                 <TokenField value={block.title ?? ''} onChange={title => onChange({ title: title || undefined })} />
             </Field>
             <Field label="Height (pt)" hint="The plot; a pie's legend can make it taller.">
-                <NumberInput min={40} max={600} value={block.height} onChange={height => onChange({ height: height ?? 160 })} aria-label="Chart height" />
+                <NumberInput
+                    min={40}
+                    max={600}
+                    value={block.height}
+                    onChange={height => onChange({ height: height ?? 160 })}
+                    aria-label="Chart height"
+                />
             </Field>
             {block.template && (
                 <div>

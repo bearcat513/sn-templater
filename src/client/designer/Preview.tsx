@@ -12,6 +12,7 @@ import { usePdf } from '../hooks/usePdf'
 import type { TableSchema } from '../services/schema'
 import { paginate } from '../slides/paginate'
 import { SlideView } from '../slides/SlideView'
+import { ProblemsPanel } from '../ui/ProblemsPanel'
 import { Icon } from '../ui/icons'
 import { Button, IconButton, Notice, Segmented, Spinner } from '../ui/controls'
 import { RecordPicker } from './RecordPicker'
@@ -82,7 +83,10 @@ export function Preview({ template, kind, schema, title, recordId, onRecordChang
     const charts = useCharts(useMemo(() => chartTemplateIds(settled), [settled]))
     const job = useMemo<RenderJob>(() => {
         if (recordId && loaded) {
-            return withCharts({ ...loaded.job, title, coverValues: { ...loaded.job.coverValues, 'deck.title': title } }, charts)
+            return withCharts(
+                { ...loaded.job, title, coverValues: { ...loaded.job.coverValues, 'deck.title': title } },
+                charts
+            )
         }
         return withCharts(specimenJob(settled, schema, session, title), charts)
     }, [recordId, loaded, settled, schema, session, title, charts])
@@ -99,12 +103,6 @@ export function Preview({ template, kind, schema, title, recordId, onRecordChang
         () => (mode === 'pdf' ? (pdf.result?.unknownTokens ?? []) : unknownTokens(settled, job)),
         [mode, pdf.result, settled, job]
     )
-    const warnings = [
-        ...(unknown.length
-            ? [`These tokens resolve to nothing and print blank: ${unknown.map(token => `{{${token}}}`).join(', ')}`]
-            : []),
-        ...(mode === 'pdf' ? (pdf.result?.problems ?? []) : []),
-    ]
 
     const recordLabel = job.records[0]?.label ?? ''
 
@@ -138,7 +136,11 @@ export function Preview({ template, kind, schema, title, recordId, onRecordChang
                     </div>
                     {recordId ? (
                         <>
-                            <IconButton icon="refresh" label="Fetch the record again" onClick={() => setNonce(value => value + 1)} />
+                            <IconButton
+                                icon="refresh"
+                                label="Fetch the record again"
+                                onClick={() => setNonce(value => value + 1)}
+                            />
                             <Button size="sm" variant="ghost" onClick={() => onRecordChange('')}>
                                 Specimen
                             </Button>
@@ -161,12 +163,16 @@ export function Preview({ template, kind, schema, title, recordId, onRecordChang
             </header>
 
             <Notice kind="critical" lines={[error, pdf.error].filter(Boolean)} />
-            <Notice kind="warning" lines={warnings} />
+            <ProblemsPanel unknownTokens={unknown} problems={mode === 'pdf' ? (pdf.result?.problems ?? []) : []} />
 
             <div ref={stage} className="tp-preview__stage">
                 {mode === 'pdf' ? (
                     pdf.url ? (
-                        <iframe className="tp-preview__frame" src={`${pdf.url}#toolbar=0&navpanes=0&view=FitH`} title="PDF preview" />
+                        <iframe
+                            className="tp-preview__frame"
+                            src={`${pdf.url}#toolbar=0&navpanes=0&view=FitH`}
+                            title="PDF preview"
+                        />
                     ) : (
                         <div className="tp-preview__placeholder">
                             <Spinner /> Rendering…

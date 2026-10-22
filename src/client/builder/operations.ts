@@ -61,7 +61,11 @@ export function deleteSlide(body: PresentationBody, slides: Slide[], key: string
 }
 
 /** A custom slide copied in after itself. A record slide is the template's to draw, so it has no copy. */
-export function duplicateSlide(body: PresentationBody, slides: Slide[], key: string): { body: PresentationBody; key: string } {
+export function duplicateSlide(
+    body: PresentationBody,
+    slides: Slide[],
+    key: string
+): { body: PresentationBody; key: string } {
     const at = slides.findIndex(slide => slide.key === key)
     const original = slides[at]?.custom
     if (!original) return { body, key }
@@ -80,14 +84,22 @@ export function updateSlide(
 /* -------------------------------- sections ------------------------------- */
 
 /** A template placed at `at`: its header goes there, and its slides follow it as they load. */
-export function insertSection(body: PresentationBody, slides: Slide[], at: number, section: DeckSection): PresentationBody {
+export function insertSection(
+    body: PresentationBody,
+    slides: Slide[],
+    at: number,
+    section: DeckSection
+): PresentationBody {
     const order = orderOf(slides)
     order.splice(Math.max(0, Math.min(at, order.length)), 0, { key: sectionKey(section.id) })
     return { ...body, sections: [...(body.sections ?? []), section], order }
 }
 
 export function updateSection(body: PresentationBody, id: string, change: Partial<DeckSection>): PresentationBody {
-    return { ...body, sections: (body.sections ?? []).map(section => (section.id === id ? { ...section, ...change } : section)) }
+    return {
+        ...body,
+        sections: (body.sections ?? []).map(section => (section.id === id ? { ...section, ...change } : section)),
+    }
 }
 
 /** A section taken out, with its slides and their notes. The template itself is not touched. */
@@ -118,7 +130,9 @@ export function moveSection(body: PresentationBody, slides: Slide[], id: string,
 export function hideSection(body: PresentationBody, slides: Slide[], id: string, hidden: boolean): PresentationBody {
     return {
         ...body,
-        order: orderOf(slides.map(slide => (sectionOf(slide.key) === id && !slide.marker ? { ...slide, hidden } : slide))),
+        order: orderOf(
+            slides.map(slide => (sectionOf(slide.key) === id && !slide.marker ? { ...slide, hidden } : slide))
+        ),
     }
 }
 
@@ -190,7 +204,12 @@ export type Alignment = 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom
  * Lines elements up — with each other when there are several, with the
  * slide when there is one, as PowerPoint does.
  */
-export function align(slide: CustomSlide, ids: string[], how: Alignment, sheet: { width: number; height: number }): CustomSlide {
+export function align(
+    slide: CustomSlide,
+    ids: string[],
+    how: Alignment,
+    sheet: { width: number; height: number }
+): CustomSlide {
     const picked = slide.elements.filter(element => ids.includes(element.id))
     const frame = picked.length > 1 ? boundsOf(picked)! : { x: 0, y: 0, w: sheet.width, h: sheet.height }
     return patchElements(slide, ids, element => {
@@ -339,14 +358,20 @@ export function newTable(sheet: Sheet, rows: number, columns: number): TableElem
 
 /** A table with one cell's text changed. */
 export const setCell = (table: TableElement, row: number, column: number, text: string): Partial<TableElement> => ({
-    rows: table.rows.map((cells, at) => (at === row ? cells.map((cell, index) => (index === column ? text : cell)) : cells)),
+    rows: table.rows.map((cells, at) =>
+        at === row ? cells.map((cell, index) => (index === column ? text : cell)) : cells
+    ),
 })
 
 /** A row added after `at` (or at the end), keeping each row's height: the table grows to hold it. */
 export function insertRow(table: TableElement, at = table.rows.length - 1): Partial<TableElement> {
     const width = table.rows[0]?.length ?? 1
     const rows = [...table.rows]
-    rows.splice(at + 1, 0, Array.from({ length: width }, () => ''))
+    rows.splice(
+        at + 1,
+        0,
+        Array.from({ length: width }, () => '')
+    )
     return { rows, h: Math.round((table.h / table.rows.length) * rows.length) }
 }
 
@@ -387,10 +412,38 @@ export function removeColumn(table: TableElement, at: number): Partial<TableElem
 /** What the format painter copies: how an element looks, and nothing about where it is or what it says. */
 export type CopiedStyle = { type: SlideElement['type']; style: Record<string, unknown> }
 
-const SHAPE_STYLE = ['fill', 'stroke', 'strokeWidth', 'size', 'color', 'bold', 'italic', 'underline', 'align', 'valign', 'family', 'bullets', 'lineHeight', 'code', 'opacity'] as const
+const SHAPE_STYLE = [
+    'fill',
+    'stroke',
+    'strokeWidth',
+    'size',
+    'color',
+    'bold',
+    'italic',
+    'underline',
+    'align',
+    'valign',
+    'family',
+    'bullets',
+    'lineHeight',
+    'code',
+    'opacity',
+] as const
 const LINE_STYLE = ['stroke', 'strokeWidth', 'dashed', 'arrowStart', 'arrowEnd', 'opacity'] as const
 const IMAGE_STYLE = ['stroke', 'strokeWidth', 'opacity'] as const
-const TABLE_STYLE = ['size', 'color', 'family', 'align', 'header', 'headerFill', 'headerColor', 'banded', 'fill', 'border', 'opacity'] as const
+const TABLE_STYLE = [
+    'size',
+    'color',
+    'family',
+    'align',
+    'header',
+    'headerFill',
+    'headerColor',
+    'banded',
+    'fill',
+    'border',
+    'opacity',
+] as const
 const CHART_STYLE = [...CHART_LOOK_KEYS, 'opacity'] as const
 
 const STYLE_KEYS: Record<SlideElement['type'], readonly string[]> = {
@@ -492,14 +545,25 @@ export function snap(
     sheet: { width: number; height: number },
     threshold: number
 ): { dx: number; dy: number; guides: Guide[] } {
-    const xs = [0, sheet.width / 2, sheet.width, ...others.flatMap(other => [other.x, other.x + other.w / 2, other.x + other.w])]
-    const ys = [0, sheet.height / 2, sheet.height, ...others.flatMap(other => [other.y, other.y + other.h / 2, other.y + other.h])]
+    const xs = [
+        0,
+        sheet.width / 2,
+        sheet.width,
+        ...others.flatMap(other => [other.x, other.x + other.w / 2, other.x + other.w]),
+    ]
+    const ys = [
+        0,
+        sheet.height / 2,
+        sheet.height,
+        ...others.flatMap(other => [other.y, other.y + other.h / 2, other.y + other.h]),
+    ]
     const best = (edges: number[], targets: number[]) => {
         let found: { delta: number; at: number } | null = null
         for (const edge of edges)
             for (const target of targets) {
                 const delta = target - edge
-                if (Math.abs(delta) <= threshold && (!found || Math.abs(delta) < Math.abs(found.delta))) found = { delta, at: target }
+                if (Math.abs(delta) <= threshold && (!found || Math.abs(delta) < Math.abs(found.delta)))
+                    found = { delta, at: target }
             }
         return found
     }

@@ -1,0 +1,19 @@
+{
+    "printWidth": 120,
+    "tabWidth": 4,
+    "semi": false,
+    "singleQuote": true,
+    "arrowParens": "avoid",
+    "trailingComma": "es5",
+    "overrides": [
+        {
+            "files": ["src/client/engine/**/*.ts"],
+            "options": {
+                "tabWidth": 2,
+                "semi": true,
+                "singleQuote": false,
+                "trailingComma": "all"
+            }
+        }
+    ]
+}

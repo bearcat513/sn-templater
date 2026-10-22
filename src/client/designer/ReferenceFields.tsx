@@ -83,7 +83,10 @@ export function ReferenceFields({
             {block.field && (
                 <>
                     <Field label="Title" hint="Empty leaves the card without one.">
-                        <TokenField value={block.title ?? ''} onChange={title => onChange({ title: title || undefined })} />
+                        <TokenField
+                            value={block.title ?? ''}
+                            onChange={title => onChange({ title: title || undefined })}
+                        />
                     </Field>
 
                     <div className="tp-pairs">
@@ -100,7 +103,9 @@ export function ReferenceFields({
                                         fields={target.data.fields}
                                         value={row.field}
                                         aria-label={`Row ${index + 1} field`}
-                                        onChange={field => replace(index, { field: field.name, label: row.label || field.label })}
+                                        onChange={field =>
+                                            replace(index, { field: field.name, label: row.label || field.label })
+                                        }
                                     />
                                 ) : (
                                     <Input
@@ -130,7 +135,11 @@ export function ReferenceFields({
                                         value=""
                                         placeholder={`Add a field of ${target.data.label}…`}
                                         aria-label="Add a field"
-                                        onChange={field => onChange({ rows: [...block.rows, { label: field.label, field: field.name }] })}
+                                        onChange={field =>
+                                            onChange({
+                                                rows: [...block.rows, { label: field.label, field: field.name }],
+                                            })
+                                        }
                                     />
                                 </div>
                             ) : target.loading ? (
@@ -138,7 +147,11 @@ export function ReferenceFields({
                                     <Spinner size={14} /> Reading {block.table}…
                                 </span>
                             ) : (
-                                <Button size="sm" icon="plus" onClick={() => onChange({ rows: [...block.rows, { label: '', field: '' }] })}>
+                                <Button
+                                    size="sm"
+                                    icon="plus"
+                                    onClick={() => onChange({ rows: [...block.rows, { label: '', field: '' }] })}
+                                >
                                     Row
                                 </Button>
                             )}
@@ -164,9 +177,17 @@ export function ReferenceFields({
                     </div>
                     <div className="tp-grid tp-grid--2">
                         <Field label="When empty" hint="Printed when the field has no record. Empty prints nothing.">
-                            <TokenField value={block.emptyText ?? ''} onChange={emptyText => onChange({ emptyText: emptyText || undefined })} />
+                            <TokenField
+                                value={block.emptyText ?? ''}
+                                onChange={emptyText => onChange({ emptyText: emptyText || undefined })}
+                            />
                         </Field>
-                        <ColorField label="Accent" allowEmpty value={block.color ?? ''} onChange={color => onChange({ color: color || undefined })} />
+                        <ColorField
+                            label="Accent"
+                            allowEmpty
+                            value={block.color ?? ''}
+                            onChange={color => onChange({ color: color || undefined })}
+                        />
                     </div>
                 </>
             )}

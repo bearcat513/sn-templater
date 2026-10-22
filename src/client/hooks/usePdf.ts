@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { renderPdfDocument, type PdfRenderResult, type RenderJob } from '../engine/render'
 import type { PdfTemplate } from '../engine/template'
 import { describeError, log } from '../debug/log'
+import { useFontsReady } from './useFonts'
 
 export type PdfState = {
     /** A blob URL for the last good render, for an iframe or a download link. */
@@ -22,6 +23,7 @@ export type PdfState = {
 export function usePdf(template: PdfTemplate | null, job: RenderJob | null): PdfState {
     const [url, setUrl] = useState('')
     const previous = useRef('')
+    const fontsReady = useFontsReady(template, job)
 
     const rendered = useMemo(() => {
         if (!template || !job) return { result: null, error: '' }
@@ -44,7 +46,9 @@ export function usePdf(template: PdfTemplate | null, job: RenderJob | null): Pdf
                 error: failure instanceof Error ? failure.message : 'This template could not be rendered.',
             }
         }
-    }, [template, job])
+        // Drawn again once the embedded fonts arrive, with the real glyphs in place of question marks.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [template, job, fontsReady])
 
     useEffect(() => {
         if (!rendered.result) return

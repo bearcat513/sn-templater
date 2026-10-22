@@ -68,7 +68,11 @@ export function RelatedListFields({ block, schema, onChange }: Props) {
                 changes.columns = pickStarterFields(
                     target.fields.filter(item => item.name !== field),
                     5
-                ).map(item => ({ field: item.name, header: item.label, width: item.name === 'short_description' ? 3 : 1.5 }))
+                ).map(item => ({
+                    field: item.name,
+                    header: item.label,
+                    width: item.name === 'short_description' ? 3 : 1.5,
+                }))
             } catch {
                 changes.columns = []
             }
@@ -107,7 +111,10 @@ export function RelatedListFields({ block, schema, onChange }: Props) {
             {block.table && (
                 <>
                     <Field label="Title" hint="Drawn above the table. {{list.count}} is how many matched.">
-                        <TokenField value={block.title ?? ''} onChange={title => onChange({ title: title || undefined })} />
+                        <TokenField
+                            value={block.title ?? ''}
+                            onChange={title => onChange({ title: title || undefined })}
+                        />
                     </Field>
 
                     <Field
@@ -219,7 +226,9 @@ export function RelatedListFields({ block, schema, onChange }: Props) {
                                     value={column.align ?? 'left'}
                                     options={[...ALIGNS]}
                                     aria-label={`Column ${index + 1} alignment`}
-                                    onChange={align => replaceColumn(index, { align: align === 'left' ? undefined : align })}
+                                    onChange={align =>
+                                        replaceColumn(index, { align: align === 'left' ? undefined : align })
+                                    }
                                 />
                                 <IconButton
                                     icon="trash"

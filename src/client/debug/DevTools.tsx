@@ -166,10 +166,19 @@ export function DevTools() {
                     onClick={() => {
                         const text = JSON.stringify(exportSnapshot(), jsonSafe, 2)
                         const stamp = new Date().toISOString().replace(/[:.]/g, '-')
-                        downloadBytes(new TextEncoder().encode(text), `templater-debug-${stamp}.json`, 'application/json')
+                        downloadBytes(
+                            new TextEncoder().encode(text),
+                            `templater-debug-${stamp}.json`,
+                            'application/json'
+                        )
                     }}
                 />
-                <IconButton icon="x" size="sm" label="Close developer tools (Ctrl+`)" onClick={() => update({ open: false })} />
+                <IconButton
+                    icon="x"
+                    size="sm"
+                    label="Close developer tools (Ctrl+`)"
+                    onClick={() => update({ open: false })}
+                />
             </header>
             <div className="tp-dt__body" role="tabpanel">
                 {prefs.tab === 'console' && <ConsoleTab logs={snapshot.logs} />}
@@ -310,7 +319,10 @@ function LogRow({ entry }: { entry: LogEntry }) {
                 aria-expanded={hasData ? open : undefined}
                 disabled={!hasData}
             >
-                <span className={cx('tp-dt-tree__caret', open && 'is-open', !hasData && 'is-hidden')} aria-hidden="true">
+                <span
+                    className={cx('tp-dt-tree__caret', open && 'is-open', !hasData && 'is-hidden')}
+                    aria-hidden="true"
+                >
                     ▸
                 </span>
                 <span className="tp-dt-log__time" title={new Date(entry.time).toLocaleString()}>
@@ -364,7 +376,11 @@ function NetworkTab({ entries }: { entries: NetworkEntry[] }) {
                 />
                 <FilterInput value={filter} onChange={setFilter} placeholder="Filter URLs" />
                 <label className="tp-dt-check">
-                    <input type="checkbox" checked={failedOnly} onChange={event => setFailedOnly(event.target.checked)} />
+                    <input
+                        type="checkbox"
+                        checked={failedOnly}
+                        onChange={event => setFailedOnly(event.target.checked)}
+                    />
                     Failed only
                 </label>
                 <span className="tp-dt-toolbar__meta">
@@ -402,8 +418,12 @@ function NetworkTab({ entries }: { entries: NetworkEntry[] }) {
                                     <td className="tp-dt-table__name" title={entry.url}>
                                         {requestName(entry.url)}
                                     </td>
-                                    <td className="is-num">{entry.size === undefined ? '' : formatBytes(entry.size)}</td>
-                                    <td className="is-num">{entry.duration === undefined ? '' : formatMs(entry.duration)}</td>
+                                    <td className="is-num">
+                                        {entry.size === undefined ? '' : formatBytes(entry.size)}
+                                    </td>
+                                    <td className="is-num">
+                                        {entry.duration === undefined ? '' : formatMs(entry.duration)}
+                                    </td>
                                     <td className="is-num">
                                         {entry.serverDuration === undefined ? '' : formatMs(entry.serverDuration)}
                                     </td>
@@ -412,7 +432,9 @@ function NetworkTab({ entries }: { entries: NetworkEntry[] }) {
                         </tbody>
                     </table>
                     {!shown.length && (
-                        <p className="tp-dt-empty">{entries.length ? 'Nothing matches the filter.' : 'No requests yet.'}</p>
+                        <p className="tp-dt-empty">
+                            {entries.length ? 'Nothing matches the filter.' : 'No requests yet.'}
+                        </p>
                     )}
                 </div>
                 {current && <RequestDetail entry={current} onClose={() => setSelected(null)} />}
@@ -477,7 +499,8 @@ function RequestDetail({ entry, onClose }: { entry: NetworkEntry; onClose: () =>
                                     <dt>Duration</dt>
                                     <dd>
                                         {formatMs(entry.duration)}
-                                        {entry.serverDuration !== undefined && ` (server ${formatMs(entry.serverDuration)})`}
+                                        {entry.serverDuration !== undefined &&
+                                            ` (server ${formatMs(entry.serverDuration)})`}
                                     </dd>
                                 </>
                             )}
@@ -541,7 +564,7 @@ const ENVIRONMENT = 'environment'
 function StateTab({ inspected }: { inspected: Record<string, { value: unknown; updated: number }> }) {
     const names = useMemo(() => Object.keys(inspected).sort(), [inspected])
     const [selected, setSelected] = useState<string>(names[0] ?? ENVIRONMENT)
-    const active = selected === ENVIRONMENT || selected in inspected ? selected : names[0] ?? ENVIRONMENT
+    const active = selected === ENVIRONMENT || selected in inspected ? selected : (names[0] ?? ENVIRONMENT)
 
     return (
         <div className="tp-dt-split has-detail tp-dt-split--state">
@@ -591,7 +614,15 @@ function environment() {
 
 /* ------------------------------------------------------------------ helpers */
 
-function FilterInput({ value, onChange, placeholder }: { value: string; onChange: (value: string) => void; placeholder: string }) {
+function FilterInput({
+    value,
+    onChange,
+    placeholder,
+}: {
+    value: string
+    onChange: (value: string) => void
+    placeholder: string
+}) {
     return (
         <label className="tp-dt-filter">
             <Icon name="filter" size={12} />

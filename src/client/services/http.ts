@@ -17,6 +17,74 @@ export class HttpError extends Error {
     }
 }
 
+/**
+ * A save refused because someone else saved the same record since it was
+ * opened: who did, and when, so the person saving can decide what to do.
+ */
+export class ConflictError extends Error {
+    constructor(
+        readonly updatedBy: string,
+        readonly updatedOn: string
+    ) {
+        super(`${updatedBy || 'Someone'} changed this at ${updatedOn || 'some point'} since you opened it.`)
+    }
+}
+
+/* ------------------------------------------------------- session recovery */
+
+/** What the page listens for when a session has ended and the person has to sign in again. */
+export const SESSION_EXPIRED_EVENT = 'templater:session-expired'
+
+/** Sent with the event: call it with true once signed in again, or false to give up. */
+export type SessionExpiredDetail = { resume: (signedIn: boolean) => void }
+
+/**
+ * Reads a fresh session token from the page itself.
+ *
+ * After signing in again — in another tab — the browser has a new session,
+ * but this page still holds the old session's token, and every request with
+ * it is refused. The page's own HTML carries the current one.
+ */
+export async function refreshSessionToken(): Promise<boolean> {
+    try {
+        const response = await fetch(window.location.pathname + window.location.search, {
+            credentials: 'same-origin',
+            headers: { Accept: 'text/html' },
+        })
+        if (!response.ok) return false
+        const html = await response.text()
+        const found = /g_ck['"]?\s*[:=]\s*['"]([0-9a-zA-Z]{20,})['"]/.exec(html)?.[1]
+        if (!found) return false
+        window.g_ck = found
+        return true
+    } catch {
+        return false
+    }
+}
+
+let recovering: Promise<boolean> | null = null
+
+/**
+ * When a request is refused for want of a session: try the page's fresh token
+ * first, and failing that, ask the person to sign in again and wait for them.
+ * Nothing they were working on is thrown away while they do; the request is
+ * then sent again. Concurrent refusals share one prompt.
+ */
+function recoverSession(): Promise<boolean> {
+    recovering ??= (async () => {
+        if (await refreshSessionToken()) return true
+        return new Promise<boolean>(resolve => {
+            const detail: SessionExpiredDetail = { resume: resolve }
+            // With nothing listening, there is no one to ask: fail as before.
+            if (window.dispatchEvent(new CustomEvent(SESSION_EXPIRED_EVENT, { detail, cancelable: true })))
+                resolve(false)
+        })
+    })().finally(() => {
+        recovering = null
+    })
+    return recovering
+}
+
 /** Why a ServiceNow API said no, in the words it used. */
 async function errorMessage(response: Response): Promise<string> {
     try {
@@ -37,7 +105,7 @@ async function errorMessage(response: Response): Promise<string> {
  * Every call to the instance goes through here: the session token on the way
  * out, the platform's own error message on the way back.
  */
-export async function request(url: string, init: RequestInit = {}): Promise<Response> {
+export async function request(url: string, init: RequestInit = {}, retried = false): Promise<Response> {
     const headers: Record<string, string> = {
         Accept: 'application/json',
         'X-UserToken': window.g_ck,
@@ -55,6 +123,10 @@ export async function request(url: string, init: RequestInit = {}): Promise<Resp
         throw failure
     }
     if (traceId) traceResponse(traceId, method, url, response)
+    if (response.status === 401 && !retried && (await recoverSession())) {
+        log.info('http', `Signed in again; sending ${method} ${shortUrl(url)} again`)
+        return request(url, init, true)
+    }
     if (!response.ok) throw new HttpError(await errorMessage(response), response.status)
     return response
 }
@@ -156,3 +228,21 @@ export const andQuery = (...parts: (string | undefined)[]): string =>
         .map(part => (part ?? '').trim().replace(/^\^+|\^+$/g, ''))
         .filter(Boolean)
         .join('^')
+
+/**
+ * Refuses to go on when a record has been saved by someone else since it was
+ * read — its update counter has moved on — so a save cannot silently write
+ * over their work. The window between this check and the save is a request
+ * long; that is the trade for not needing a server route of our own.
+ */
+export async function assertUnchanged(table: string, sysId: string, modCount: number): Promise<void> {
+    const { result } = await getJson<{ result: Record<string, { value: string; display_value: string }> }>(
+        `/api/now/table/${table}/${encodeURIComponent(sysId)}?${query({
+            sysparm_fields: 'sys_mod_count,sys_updated_by,sys_updated_on',
+            sysparm_display_value: 'all',
+        })}`
+    )
+    if ((Number(result.sys_mod_count?.value) || 0) !== modCount) {
+        throw new ConflictError(result.sys_updated_by?.display_value ?? '', result.sys_updated_on?.display_value ?? '')
+    }
+}

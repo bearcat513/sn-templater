@@ -65,7 +65,7 @@ The block types and their main keys:
 | `table` | `columns: [{ header, width, align }]`, `rows: [[cell, …]]` |
 | `code` | `code`, `title`, `lineNumbers` |
 | `link` | `text`, `url` |
-| `image` | `source` (PNG or JPEG `data:` URL), `width`, `align`, `caption` |
+| `image` | `source` (PNG or JPEG `data:` URL; the designer stores it as an `attachment:templater-….png` reference to an attachment on the template), `width`, `align`, `caption` |
 | `signatures` | `parties: [{ label, caption }]` |
 | `chart` | See [Charts](../README.md#charts). The easiest way to get one is to make it in the designer and copy its JSON. |
 | `divider`, `spacer`, `pageBreak` | `divider`: `color`, `thickness`. `spacer`: `height`. |

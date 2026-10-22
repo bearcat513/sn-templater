@@ -125,7 +125,9 @@ function FreeformElement({
             return (
                 <div style={style} className={className}>
                     <ShapeOutline element={element} />
-                    {hideText !== element.id && <ShapeText element={element} family={family} fill={fill} placeholder={placeholder} />}
+                    {hideText !== element.id && (
+                        <ShapeText element={element} family={family} fill={fill} placeholder={placeholder} />
+                    )}
                     {anchor}
                 </div>
             )
@@ -168,7 +170,11 @@ function FreeformElement({
             const name = charts[element.template]?.name || element.name || 'Chart'
             return (
                 <div style={style} className={className}>
-                    <ChartSvg scene={chartElementScene(element, charts, chartStyle, fill)} family={family} label={name} />
+                    <ChartSvg
+                        scene={chartElementScene(element, charts, chartStyle, fill)}
+                        family={family}
+                        label={name}
+                    />
                     {anchor}
                 </div>
             )
@@ -280,14 +286,37 @@ function TableDrawing({
             <svg className="tp-free__svg" width={element.w} height={element.h} aria-hidden="true">
                 {cells.map(cell => {
                     const color = cellFill(element, cell.row)
-                    return color ? <rect key={`${cell.row},${cell.column}`} x={cell.x} y={cell.y} width={cell.w} height={cell.h} fill={color} /> : null
+                    return color ? (
+                        <rect
+                            key={`${cell.row},${cell.column}`}
+                            x={cell.x}
+                            y={cell.y}
+                            width={cell.w}
+                            height={cell.h}
+                            fill={color}
+                        />
+                    ) : null
                 })}
                 {element.border && (
                     <>
                         {tableLines(local).map(([x1, y1, x2, y2], index) => (
-                            <line key={index} x1={x1} y1={y1} x2={x2} y2={y2} stroke={element.border} strokeWidth={0.75} />
+                            <line
+                                key={index}
+                                x1={x1}
+                                y1={y1}
+                                x2={x2}
+                                y2={y2}
+                                stroke={element.border}
+                                strokeWidth={0.75}
+                            />
                         ))}
-                        <rect width={element.w} height={element.h} fill="none" stroke={element.border} strokeWidth={0.75} />
+                        <rect
+                            width={element.w}
+                            height={element.h}
+                            fill="none"
+                            stroke={element.border}
+                            strokeWidth={0.75}
+                        />
                     </>
                 )}
             </svg>
@@ -324,12 +353,7 @@ function LineDrawing({ element }: { element: LineElement }) {
     const points = (corners: [number, number][]) => corners.map(([x, y]) => `${x},${y}`).join(' ')
 
     return (
-        <svg
-            className="tp-free__svg"
-            width={Math.max(1, element.w)}
-            height={Math.max(1, element.h)}
-            aria-hidden="true"
-        >
+        <svg className="tp-free__svg" width={Math.max(1, element.w)} height={Math.max(1, element.h)} aria-hidden="true">
             <line
                 x1={start[0]}
                 y1={start[1]}
@@ -338,11 +362,11 @@ function LineDrawing({ element }: { element: LineElement }) {
                 stroke={element.stroke}
                 strokeWidth={element.strokeWidth}
                 strokeLinecap="round"
-                strokeDasharray={
-                    element.dashed ? `${element.strokeWidth * 3} ${element.strokeWidth * 2.5}` : undefined
-                }
+                strokeDasharray={element.dashed ? `${element.strokeWidth * 3} ${element.strokeWidth * 2.5}` : undefined}
             />
-            {element.arrowEnd && <polygon points={points(arrowHead(from, to, element.strokeWidth))} fill={element.stroke} />}
+            {element.arrowEnd && (
+                <polygon points={points(arrowHead(from, to, element.strokeWidth))} fill={element.stroke} />
+            )}
             {element.arrowStart && (
                 <polygon points={points(arrowHead(to, from, element.strokeWidth))} fill={element.stroke} />
             )}

@@ -6,76 +6,77 @@
  * still looks finished when it does not.
  */
 :root {
-  /* Surfaces */
-  --tp-surface: rgb(var(--now-color_background--primary, 255, 255, 255));
-  --tp-surface-raised: rgb(var(--now-container-card--background-color, 255, 255, 255));
-  --tp-surface-sunken: rgb(var(--now-color_background--secondary, 245, 246, 247));
-  --tp-surface-hover: rgba(var(--now-color--primary-1, 0, 128, 163), 0.06);
-  --tp-surface-selected: rgba(var(--now-color--primary-1, 0, 128, 163), 0.1);
-  --tp-canvas: rgb(var(--now-color_background--tertiary, 232, 235, 237));
+    /* Surfaces */
+    --tp-surface: rgb(var(--now-color_background--primary, 255, 255, 255));
+    --tp-surface-raised: rgb(var(--now-container-card--background-color, 255, 255, 255));
+    --tp-surface-sunken: rgb(var(--now-color_background--secondary, 245, 246, 247));
+    --tp-surface-hover: rgba(var(--now-color--primary-1, 0, 128, 163), 0.06);
+    --tp-surface-selected: rgba(var(--now-color--primary-1, 0, 128, 163), 0.1);
+    --tp-canvas: rgb(var(--now-color_background--tertiary, 232, 235, 237));
 
-  /* Borders */
-  --tp-border: rgba(var(--now-container--border-color, 207, 213, 215), 0.75);
-  --tp-border-strong: rgb(var(--now-form-control-input--primary--border-color, 135, 147, 152));
+    /* Borders */
+    --tp-border: rgba(var(--now-container--border-color, 207, 213, 215), 0.75);
+    --tp-border-strong: rgb(var(--now-form-control-input--primary--border-color, 135, 147, 152));
 
-  /* Text */
-  --tp-text: rgb(var(--now-color_text--primary, 16, 23, 26));
-  --tp-text-muted: rgb(var(--now-color_text--secondary, 75, 85, 89));
-  --tp-text-subtle: rgb(var(--now-color_text--tertiary, 110, 120, 125));
-  --tp-text-inverse: rgb(var(--now-actionable_label--primary--color, 255, 255, 255));
+    /* Text */
+    --tp-text: rgb(var(--now-color_text--primary, 16, 23, 26));
+    --tp-text-muted: rgb(var(--now-color_text--secondary, 75, 85, 89));
+    /* The fallbacks meet WCAG AA (4.5:1) for small text on every surface and tint below. */
+    --tp-text-subtle: rgb(var(--now-color_text--tertiary, 96, 106, 111));
+    --tp-text-inverse: rgb(var(--now-actionable_label--primary--color, 255, 255, 255));
 
-  /* Action */
-  --tp-primary: rgb(var(--now-actionable--primary--background-color, 0, 113, 143));
-  --tp-primary-hover: rgb(var(--now-actionable--primary--background-color--hover, 0, 94, 120));
-  --tp-primary-active: rgb(var(--now-actionable--primary--background-color--active, 0, 76, 97));
-  --tp-primary-tint: rgba(var(--now-actionable--primary--background-color, 0, 113, 143), 0.1);
-  --tp-focus: rgb(var(--now-color_focus-ring, 53, 147, 37));
+    /* Action */
+    --tp-primary: rgb(var(--now-actionable--primary--background-color, 0, 113, 143));
+    --tp-primary-hover: rgb(var(--now-actionable--primary--background-color--hover, 0, 94, 120));
+    --tp-primary-active: rgb(var(--now-actionable--primary--background-color--active, 0, 76, 97));
+    --tp-primary-tint: rgba(var(--now-actionable--primary--background-color, 0, 113, 143), 0.1);
+    --tp-focus: rgb(var(--now-color_focus-ring, 53, 147, 37));
 
-  /* Status */
-  --tp-critical: rgb(var(--now-color_alert--critical-3, 200, 30, 50));
-  --tp-critical-bg: rgb(var(--now-alert--critical--background-color, 251, 230, 232));
-  --tp-critical-border: rgb(var(--now-alert--critical--border-color, 235, 160, 168));
-  --tp-warning: rgb(var(--now-color_alert--warning-3, 140, 95, 0));
-  --tp-warning-bg: rgb(var(--now-alert--warning--background-color, 252, 243, 214));
-  --tp-warning-border: rgb(var(--now-alert--warning--border-color, 221, 182, 101));
-  --tp-info-bg: rgb(var(--now-alert--info--background-color, 228, 240, 250));
-  --tp-info-border: rgb(var(--now-alert--info--border-color, 150, 190, 225));
-  --tp-positive: rgb(var(--now-color_alert--positive-3, 46, 125, 50));
-  --tp-positive-bg: rgb(var(--now-alert--positive--background-color, 228, 244, 228));
+    /* Status */
+    --tp-critical: rgb(var(--now-color_alert--critical-3, 200, 30, 50));
+    --tp-critical-bg: rgb(var(--now-alert--critical--background-color, 251, 230, 232));
+    --tp-critical-border: rgb(var(--now-alert--critical--border-color, 235, 160, 168));
+    --tp-warning: rgb(var(--now-color_alert--warning-3, 140, 95, 0));
+    --tp-warning-bg: rgb(var(--now-alert--warning--background-color, 252, 243, 214));
+    --tp-warning-border: rgb(var(--now-alert--warning--border-color, 221, 182, 101));
+    --tp-info-bg: rgb(var(--now-alert--info--background-color, 228, 240, 250));
+    --tp-info-border: rgb(var(--now-alert--info--border-color, 150, 190, 225));
+    --tp-positive: rgb(var(--now-color_alert--positive-3, 45, 123, 49));
+    --tp-positive-bg: rgb(var(--now-alert--positive--background-color, 228, 244, 228));
 
-  /*
+    /*
    * Shape and elevation are the app's own, not Horizon's: rounder corners and
    * soft, layered shadows. Colour still follows the instance theme.
    */
-  --tp-radius-sm: 6px;
-  --tp-radius: 8px;
-  --tp-radius-lg: 14px;
-  --tp-shadow-xs: 0 1px 2px rgba(16, 24, 40, 0.06);
-  --tp-shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.05), 0 1px 3px rgba(16, 24, 40, 0.07);
-  --tp-shadow: 0 2px 4px -2px rgba(16, 24, 40, 0.06), 0 8px 20px -4px rgba(16, 24, 40, 0.1);
-  --tp-shadow-lg: 0 8px 16px -8px rgba(16, 24, 40, 0.12), 0 24px 56px -12px rgba(16, 24, 40, 0.24);
-  --tp-ring: 0 0 0 3px rgba(var(--now-actionable--primary--background-color, 0, 113, 143), 0.22);
-  --tp-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+    --tp-radius-sm: 6px;
+    --tp-radius: 8px;
+    --tp-radius-lg: 14px;
+    --tp-shadow-xs: 0 1px 2px rgba(16, 24, 40, 0.06);
+    --tp-shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.05), 0 1px 3px rgba(16, 24, 40, 0.07);
+    --tp-shadow: 0 2px 4px -2px rgba(16, 24, 40, 0.06), 0 8px 20px -4px rgba(16, 24, 40, 0.1);
+    --tp-shadow-lg: 0 8px 16px -8px rgba(16, 24, 40, 0.12), 0 24px 56px -12px rgba(16, 24, 40, 0.24);
+    --tp-ring: 0 0 0 3px rgba(var(--now-actionable--primary--background-color, 0, 113, 143), 0.22);
+    --tp-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
 
-  /* Spacing */
-  --tp-space-1: var(--now-static-space--xs, 0.25rem);
-  --tp-space-2: var(--now-static-space--sm, 0.5rem);
-  --tp-space-3: var(--now-static-space--md, 0.75rem);
-  --tp-space-4: var(--now-static-space--lg, 1rem);
-  --tp-space-5: var(--now-static-space--xl, 1.5rem);
-  --tp-space-6: var(--now-static-space--xxl, 2rem);
+    /* Spacing */
+    --tp-space-1: var(--now-static-space--xs, 0.25rem);
+    --tp-space-2: var(--now-static-space--sm, 0.5rem);
+    --tp-space-3: var(--now-static-space--md, 0.75rem);
+    --tp-space-4: var(--now-static-space--lg, 1rem);
+    --tp-space-5: var(--now-static-space--xl, 1.5rem);
+    --tp-space-6: var(--now-static-space--xxl, 2rem);
 
-  /* Type */
-  --tp-font: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, var(--now-font-family, "Lato"), sans-serif;
-  --tp-font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  --tp-text-xs: 0.75rem;
-  --tp-text-sm: 0.8125rem;
-  --tp-text-md: 0.875rem;
-  --tp-text-lg: 1.125rem;
-  --tp-text-xl: 1.75rem;
+    /* Type */
+    --tp-font: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, var(--now-font-family, 'Lato'), sans-serif;
+    --tp-font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --tp-text-xs: 0.75rem;
+    --tp-text-sm: 0.8125rem;
+    --tp-text-md: 0.875rem;
+    --tp-text-lg: 1.125rem;
+    --tp-text-xl: 1.75rem;
 
-  --tp-header-height: 3.5rem;
+    --tp-header-height: 3.5rem;
 
-  /* How much of the bottom of the window the developer tools dock takes (0 when closed). */
-  --tp-devtools-inset: 0px;
+    /* How much of the bottom of the window the developer tools dock takes (0 when closed). */
+    --tp-devtools-inset: 0px;
 }

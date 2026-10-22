@@ -29,7 +29,10 @@ import type { SlideEditor } from './editor'
 import { insertColumn, insertRow, moveBuild, nextBuildOrder, removeColumn, removeRow, setCell } from './operations'
 import { FONT_LABELS, ToolButton } from './Ribbon'
 
-const SHAPE_LABELS = Object.fromEntries(SHAPE_KINDS.map(entry => [entry.shape, entry.label])) as Record<ShapeKind, string>
+const SHAPE_LABELS = Object.fromEntries(SHAPE_KINDS.map(entry => [entry.shape, entry.label])) as Record<
+    ShapeKind,
+    string
+>
 
 /** How the slide being edited comes in, and the deck's own choice it falls back to. */
 export type TransitionControl = {
@@ -114,7 +117,12 @@ function SlideProperties({ editor, transition }: { editor: SlideEditor; transiti
                     <Input
                         value={slide.name ?? ''}
                         maxLength={80}
-                        onChange={event => editor.change(current => ({ ...current, name: event.target.value || undefined }), 'slide-name')}
+                        onChange={event =>
+                            editor.change(
+                                current => ({ ...current, name: event.target.value || undefined }),
+                                'slide-name'
+                            )
+                        }
                     />
                 </Field>
                 <ColorField
@@ -123,12 +131,17 @@ function SlideProperties({ editor, transition }: { editor: SlideEditor; transiti
                     value={slide.background ?? ''}
                     hint="Empty uses the deck’s own."
                     onChange={background =>
-                        editor.change(current => ({ ...current, background: background || undefined }), 'slide-background')
+                        editor.change(
+                            current => ({ ...current, background: background || undefined }),
+                            'slide-background'
+                        )
                     }
                 />
                 <Switch
                     checked={slide.furniture === true}
-                    onChange={furniture => editor.change(current => ({ ...current, furniture: furniture || undefined }))}
+                    onChange={furniture =>
+                        editor.change(current => ({ ...current, furniture: furniture || undefined }))
+                    }
                     label="Show the deck’s letterhead, watermark and footer"
                 />
             </Section>
@@ -141,10 +154,16 @@ function SlideProperties({ editor, transition }: { editor: SlideEditor; transiti
                             const element = slide.elements.find(each => each.id === id)!
                             return (
                                 <li key={id}>
-                                    <button type="button" className="tp-link-button" onClick={() => editor.select([id])}>
+                                    <button
+                                        type="button"
+                                        className="tp-link-button"
+                                        onClick={() => editor.select([id])}
+                                    >
                                         {describe(element)}
                                     </button>
-                                    <span className="tp-subtle">{BUILD_EFFECTS.find(entry => entry.effect === element.build?.effect)?.label}</span>
+                                    <span className="tp-subtle">
+                                        {BUILD_EFFECTS.find(entry => entry.effect === element.build?.effect)?.label}
+                                    </span>
                                 </li>
                             )
                         })}
@@ -218,12 +237,19 @@ function Position({ editor, element }: { editor: SlideEditor; element: SlideElem
             <div className="tp-grid tp-grid--2">
                 {(['x', 'y', 'w', 'h'] as const).map(key => (
                     <Field key={key} label={{ x: 'Left', y: 'Top', w: 'Width', h: 'Height' }[key]}>
-                        <NumberInput value={Math.round(element[key])} onChange={value => set(key, value)} aria-label={key} />
+                        <NumberInput
+                            value={Math.round(element[key])}
+                            onChange={value => set(key, value)}
+                            aria-label={key}
+                        />
                     </Field>
                 ))}
             </div>
             {element.type !== 'line' && (
-                <Field label="Rotation (°)" hint="Clockwise. Drag the round handle on the slide; Shift turns in 15° steps.">
+                <Field
+                    label="Rotation (°)"
+                    hint="Clockwise. Drag the round handle on the slide; Shift turns in 15° steps."
+                >
                     <div className="tp-row">
                         <NumberInput
                             min={-180}
@@ -239,9 +265,17 @@ function Position({ editor, element }: { editor: SlideEditor; element: SlideElem
                         <ToolButton
                             icon="rotate"
                             label="Turn 90° clockwise"
-                            onClick={() => editor.patch(each => ({ rotation: normalizeRotation((each.rotation ?? 0) + 90) || undefined }))}
+                            onClick={() =>
+                                editor.patch(each => ({
+                                    rotation: normalizeRotation((each.rotation ?? 0) + 90) || undefined,
+                                }))
+                            }
                         />
-                        <ToolButton label="Reset rotation" disabled={!element.rotation} onClick={() => editor.patch({ rotation: undefined })}>
+                        <ToolButton
+                            label="Reset rotation"
+                            disabled={!element.rotation}
+                            onClick={() => editor.patch({ rotation: undefined })}
+                        >
                             0°
                         </ToolButton>
                     </div>
@@ -320,7 +354,9 @@ function LinkSection({ editor, element }: { editor: SlideEditor; element: SlideE
                     value={element.link ?? ''}
                     placeholder="None"
                     spellCheck={false}
-                    onChange={event => editor.patch({ link: event.target.value.trim() ? event.target.value : undefined }, 'link')}
+                    onChange={event =>
+                        editor.patch({ link: event.target.value.trim() ? event.target.value : undefined }, 'link')
+                    }
                 />
             </Field>
         </Section>
@@ -336,7 +372,10 @@ function AnimationSection({ editor, element }: { editor: SlideEditor; element: S
             <Field label="On click" hint="The PDF and the thumbnails show every element.">
                 <Select<BuildEffect | 'none'>
                     value={element.build?.effect ?? 'none'}
-                    options={[{ value: 'none', label: 'None — always shown' }, ...BUILD_EFFECTS.map(entry => ({ value: entry.effect, label: entry.label }))]}
+                    options={[
+                        { value: 'none', label: 'None — always shown' },
+                        ...BUILD_EFFECTS.map(entry => ({ value: entry.effect, label: entry.label })),
+                    ]}
                     onChange={effect =>
                         editor.patch({
                             build:
@@ -378,20 +417,45 @@ function TableProperties({ editor, element }: { editor: SlideEditor; element: Ta
         <>
             <Section title={`Table, ${columns} × ${rows}`}>
                 <div className="tp-row tp-row--wrap">
-                    <Button size="sm" icon="plus" disabled={rows >= MAX_TABLE_ROWS} onClick={() => patch(insertRow(element))}>
+                    <Button
+                        size="sm"
+                        icon="plus"
+                        disabled={rows >= MAX_TABLE_ROWS}
+                        onClick={() => patch(insertRow(element))}
+                    >
                         Row
                     </Button>
-                    <Button size="sm" icon="plus" disabled={columns >= MAX_TABLE_COLUMNS} onClick={() => patch(insertColumn(element))}>
+                    <Button
+                        size="sm"
+                        icon="plus"
+                        disabled={columns >= MAX_TABLE_COLUMNS}
+                        onClick={() => patch(insertColumn(element))}
+                    >
                         Column
                     </Button>
-                    <Button size="sm" icon="minus" variant="ghost" disabled={rows <= 1} onClick={() => patch(removeRow(element, rows - 1))}>
+                    <Button
+                        size="sm"
+                        icon="minus"
+                        variant="ghost"
+                        disabled={rows <= 1}
+                        onClick={() => patch(removeRow(element, rows - 1))}
+                    >
                         Row
                     </Button>
-                    <Button size="sm" icon="minus" variant="ghost" disabled={columns <= 1} onClick={() => patch(removeColumn(element, columns - 1))}>
+                    <Button
+                        size="sm"
+                        icon="minus"
+                        variant="ghost"
+                        disabled={columns <= 1}
+                        onClick={() => patch(removeColumn(element, columns - 1))}
+                    >
                         Column
                     </Button>
                 </div>
-                <div className="tp-inspector__cells" style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>
+                <div
+                    className="tp-inspector__cells"
+                    style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
+                >
                     {element.rows.map((cells, row) =>
                         cells.map((cell, column) => (
                             <Input
@@ -399,7 +463,9 @@ function TableProperties({ editor, element }: { editor: SlideEditor; element: Ta
                                 value={cell}
                                 className={element.header && row === 0 ? 'is-header' : undefined}
                                 aria-label={`Row ${row + 1}, column ${column + 1}`}
-                                onChange={event => patch(setCell(element, row, column, event.target.value), `cell:${row},${column}`)}
+                                onChange={event =>
+                                    patch(setCell(element, row, column, event.target.value), `cell:${row},${column}`)
+                                }
                             />
                         ))
                     )}
@@ -409,12 +475,37 @@ function TableProperties({ editor, element }: { editor: SlideEditor; element: Ta
                 </p>
                 <Switch checked={element.header} onChange={header => patch({ header })} label="Header row" />
                 <div className="tp-grid tp-grid--2">
-                    <ColorField label="Header fill" allowEmpty value={element.headerFill ?? ''} onChange={value => patch({ headerFill: value || undefined }, 'header-fill')} />
-                    <ColorField label="Header text" allowEmpty value={element.headerColor ?? ''} onChange={value => patch({ headerColor: value || undefined }, 'header-color')} />
-                    <ColorField label="Cells" allowEmpty value={element.fill ?? ''} onChange={value => patch({ fill: value || undefined }, 'cell-fill')} />
-                    <ColorField label="Banding" allowEmpty value={element.banded ?? ''} onChange={value => patch({ banded: value || undefined }, 'banded')} />
+                    <ColorField
+                        label="Header fill"
+                        allowEmpty
+                        value={element.headerFill ?? ''}
+                        onChange={value => patch({ headerFill: value || undefined }, 'header-fill')}
+                    />
+                    <ColorField
+                        label="Header text"
+                        allowEmpty
+                        value={element.headerColor ?? ''}
+                        onChange={value => patch({ headerColor: value || undefined }, 'header-color')}
+                    />
+                    <ColorField
+                        label="Cells"
+                        allowEmpty
+                        value={element.fill ?? ''}
+                        onChange={value => patch({ fill: value || undefined }, 'cell-fill')}
+                    />
+                    <ColorField
+                        label="Banding"
+                        allowEmpty
+                        value={element.banded ?? ''}
+                        onChange={value => patch({ banded: value || undefined }, 'banded')}
+                    />
                 </div>
-                <ColorField label="Grid lines" allowEmpty value={element.border ?? ''} onChange={value => patch({ border: value || undefined }, 'border')} />
+                <ColorField
+                    label="Grid lines"
+                    allowEmpty
+                    value={element.border ?? ''}
+                    onChange={value => patch({ border: value || undefined }, 'border')}
+                />
             </Section>
             <Section title="Text">
                 <div className="tp-grid tp-grid--2">
@@ -470,7 +561,10 @@ function Outline({
                 allowEmpty
                 value={stroke ?? ''}
                 onChange={value =>
-                    editor.patch({ stroke: value || undefined, strokeWidth: value ? (strokeWidth ?? 1.5) : undefined }, 'stroke')
+                    editor.patch(
+                        { stroke: value || undefined, strokeWidth: value ? (strokeWidth ?? 1.5) : undefined },
+                        'stroke'
+                    )
                 }
             />
             <Field label="Weight (pt)">
@@ -480,7 +574,10 @@ function Outline({
                     step={0.5}
                     value={stroke ? strokeWidth : undefined}
                     placeholder="–"
-                    onChange={value => value !== undefined && editor.patch({ strokeWidth: Math.min(40, Math.max(0, value)) }, 'stroke-width')}
+                    onChange={value =>
+                        value !== undefined &&
+                        editor.patch({ strokeWidth: Math.min(40, Math.max(0, value)) }, 'stroke-width')
+                    }
                     aria-label="Outline weight"
                 />
             </Field>
@@ -496,11 +593,19 @@ function ShapeProperties({ editor, element }: { editor: SlideEditor; element: Sh
                 <Field label="Shape">
                     <Select<ShapeKind>
                         value={element.shape}
-                        options={(Object.keys(SHAPE_LABELS) as ShapeKind[]).map(shape => ({ value: shape, label: SHAPE_LABELS[shape] }))}
+                        options={(Object.keys(SHAPE_LABELS) as ShapeKind[]).map(shape => ({
+                            value: shape,
+                            label: SHAPE_LABELS[shape],
+                        }))}
                         onChange={shape => patch({ shape })}
                     />
                 </Field>
-                <ColorField label="Fill" allowEmpty value={element.fill ?? ''} onChange={fill => patch({ fill: fill || undefined }, 'fill')} />
+                <ColorField
+                    label="Fill"
+                    allowEmpty
+                    value={element.fill ?? ''}
+                    onChange={fill => patch({ fill: fill || undefined }, 'fill')}
+                />
                 <Outline editor={editor} stroke={element.stroke} strokeWidth={element.strokeWidth} />
             </Section>
             <Section title="Text">
@@ -524,10 +629,18 @@ function ShapeProperties({ editor, element }: { editor: SlideEditor; element: Sh
                 </div>
                 <ColorField label="Colour" value={element.color} onChange={color => patch({ color }, 'text-color')} />
                 <div className="tp-row tp-row--wrap tp-inspector__tools">
-                    <ToolButton label="Bold" active={Boolean(element.bold)} onClick={() => patch({ bold: !element.bold || undefined })}>
+                    <ToolButton
+                        label="Bold"
+                        active={Boolean(element.bold)}
+                        onClick={() => patch({ bold: !element.bold || undefined })}
+                    >
                         <strong>B</strong>
                     </ToolButton>
-                    <ToolButton label="Italic" active={Boolean(element.italic)} onClick={() => patch({ italic: !element.italic || undefined })}>
+                    <ToolButton
+                        label="Italic"
+                        active={Boolean(element.italic)}
+                        onClick={() => patch({ italic: !element.italic || undefined })}
+                    >
                         <em>I</em>
                     </ToolButton>
                     <ToolButton
@@ -572,7 +685,12 @@ function ShapeProperties({ editor, element }: { editor: SlideEditor; element: Sh
                 </Field>
                 <Switch
                     checked={Boolean(element.code)}
-                    onChange={code => patch({ code: code || undefined, ...(code ? { family: 'courier' as const, bullets: undefined } : {}) })}
+                    onChange={code =>
+                        patch({
+                            code: code || undefined,
+                            ...(code ? { family: 'courier' as const, bullets: undefined } : {}),
+                        })
+                    }
                     label="Code — keep every space"
                 />
                 <Field label="Line spacing">
@@ -581,7 +699,9 @@ function ShapeProperties({ editor, element }: { editor: SlideEditor; element: Sh
                         max={3}
                         step={0.1}
                         value={element.lineHeight ?? 1.2}
-                        onChange={value => value && patch({ lineHeight: Math.min(3, Math.max(0.8, value)) }, 'line-height')}
+                        onChange={value =>
+                            value && patch({ lineHeight: Math.min(3, Math.max(0.8, value)) }, 'line-height')
+                        }
                         aria-label="Line spacing"
                     />
                 </Field>
@@ -597,19 +717,29 @@ function LineProperties({ editor, element }: { editor: SlideEditor; element: Lin
     return (
         <Section title={element.arrowEnd || element.arrowStart ? 'Arrow' : 'Line'}>
             <div className="tp-grid tp-grid--2">
-                <ColorField label="Colour" value={element.stroke} onChange={stroke => editor.patch({ stroke }, 'stroke')} />
+                <ColorField
+                    label="Colour"
+                    value={element.stroke}
+                    onChange={stroke => editor.patch({ stroke }, 'stroke')}
+                />
                 <Field label="Weight (pt)">
                     <NumberInput
                         min={0.5}
                         max={40}
                         step={0.5}
                         value={element.strokeWidth}
-                        onChange={value => value && editor.patch({ strokeWidth: Math.min(40, Math.max(0.5, value)) }, 'stroke-width')}
+                        onChange={value =>
+                            value && editor.patch({ strokeWidth: Math.min(40, Math.max(0.5, value)) }, 'stroke-width')
+                        }
                         aria-label="Line weight"
                     />
                 </Field>
             </div>
-            <Switch checked={Boolean(element.dashed)} onChange={dashed => editor.patch({ dashed: dashed || undefined })} label="Dashed" />
+            <Switch
+                checked={Boolean(element.dashed)}
+                onChange={dashed => editor.patch({ dashed: dashed || undefined })}
+                label="Dashed"
+            />
             <Switch
                 checked={Boolean(element.arrowStart)}
                 onChange={arrowStart => editor.patch({ arrowStart: arrowStart || undefined })}
@@ -654,9 +784,11 @@ function ChartProperties({ editor, element }: { editor: SlideEditor; element: Ch
     const patch = (changes: Partial<ChartElement>, merge?: string) => editor.patch(changes, merge)
     const templateKind = spec?.chart
     const kind = element.chart ?? templateKind
-    const kindLabel = (chart: ChartKind | undefined) => CHART_KINDS.find(entry => entry.kind === chart)?.label ?? 'Template’s'
+    const kindLabel = (chart: ChartKind | undefined) =>
+        CHART_KINDS.find(entry => entry.kind === chart)?.label ?? 'Template’s'
     const kinds = templateKind ? CHART_KINDS.filter(entry => chartShape(entry.kind) === chartShape(templateKind)) : []
-    const tri = (value: boolean | undefined): 'template' | 'on' | 'off' => (value === undefined ? 'template' : value ? 'on' : 'off')
+    const tri = (value: boolean | undefined): 'template' | 'on' | 'off' =>
+        value === undefined ? 'template' : value ? 'on' : 'off'
     return (
         <>
             <Section title="Chart">
@@ -668,7 +800,10 @@ function ChartProperties({ editor, element }: { editor: SlideEditor; element: Ch
                         value={element.template}
                         options={[
                             ...(known ? [] : [{ value: element.template, label: element.name ?? 'This chart' }]),
-                            ...options.map(chart => ({ value: chart.sysId, label: `${chart.name} · ${chart.tableLabel || chart.table}` })),
+                            ...options.map(chart => ({
+                                value: chart.sysId,
+                                label: `${chart.name} · ${chart.tableLabel || chart.table}`,
+                            })),
                         ]}
                         onChange={sysId => {
                             const chart = options.find(entry => entry.sysId === sysId)
@@ -691,12 +826,17 @@ function ChartProperties({ editor, element }: { editor: SlideEditor; element: Ch
                 </div>
             </Section>
             <Section title="On this slide">
-                <Field label="Draw as" hint={kinds.length > 1 ? 'The same figures, as another kind of chart.' : undefined}>
+                <Field
+                    label="Draw as"
+                    hint={kinds.length > 1 ? 'The same figures, as another kind of chart.' : undefined}
+                >
                     <Select<ChartKind | 'template'>
                         value={element.chart ?? 'template'}
                         options={[
                             { value: 'template', label: `Template’s (${kindLabel(templateKind)})` },
-                            ...kinds.filter(entry => entry.kind !== templateKind).map(entry => ({ value: entry.kind, label: entry.label })),
+                            ...kinds
+                                .filter(entry => entry.kind !== templateKind)
+                                .map(entry => ({ value: entry.kind, label: entry.label })),
                         ]}
                         onChange={chart => patch({ chart: chart === 'template' ? undefined : chart })}
                         aria-label="Draw as"
@@ -708,12 +848,20 @@ function ChartProperties({ editor, element }: { editor: SlideEditor; element: Ch
                     label="Show the chart’s title"
                 />
                 {!element.hideTitle && (
-                    <Field label="Title" hint="Empty uses the template’s. {{list.count}} is how many records were counted.">
+                    <Field
+                        label="Title"
+                        hint="Empty uses the template’s. {{list.count}} is how many records were counted."
+                    >
                         <Input
                             value={element.title ?? ''}
                             placeholder={spec?.title || 'Template’s title'}
                             maxLength={200}
-                            onChange={event => patch({ title: event.target.value.trim() ? event.target.value : undefined }, 'chart-title')}
+                            onChange={event =>
+                                patch(
+                                    { title: event.target.value.trim() ? event.target.value : undefined },
+                                    'chart-title'
+                                )
+                            }
                         />
                     </Field>
                 )}
@@ -745,7 +893,12 @@ function ChartProperties({ editor, element }: { editor: SlideEditor; element: Ch
                             max={32}
                             value={element.size}
                             placeholder="–"
-                            onChange={size => patch({ size: size === undefined ? undefined : Math.min(32, Math.max(6, size)) }, 'chart-size')}
+                            onChange={size =>
+                                patch(
+                                    { size: size === undefined ? undefined : Math.min(32, Math.max(6, size)) },
+                                    'chart-size'
+                                )
+                            }
                             aria-label="Chart text size"
                         />
                     </Field>
@@ -774,9 +927,15 @@ function ChartProperties({ editor, element }: { editor: SlideEditor; element: Ch
                         size="sm"
                         variant="ghost"
                         icon="undo"
-                        disabled={CHART_LOOK_KEYS.every(key => element[key] === undefined) && !element.chart && !element.title}
+                        disabled={
+                            CHART_LOOK_KEYS.every(key => element[key] === undefined) && !element.chart && !element.title
+                        }
                         onClick={() =>
-                            patch({ chart: undefined, title: undefined, ...Object.fromEntries(CHART_LOOK_KEYS.map(key => [key, undefined])) })
+                            patch({
+                                chart: undefined,
+                                title: undefined,
+                                ...Object.fromEntries(CHART_LOOK_KEYS.map(key => [key, undefined])),
+                            })
                         }
                     >
                         Back to the template’s look
@@ -799,8 +958,18 @@ function MultipleProperties({ editor }: { editor: SlideEditor }) {
                 </Field>
                 <Field label="Distribute" hint={count < 3 ? 'Select three or more to space them evenly.' : undefined}>
                     <div className="tp-row tp-inspector__tools">
-                        <ToolButton icon="distributeH" label="Distribute horizontally" disabled={count < 3} onClick={() => editor.distribute('x')} />
-                        <ToolButton icon="distributeV" label="Distribute vertically" disabled={count < 3} onClick={() => editor.distribute('y')} />
+                        <ToolButton
+                            icon="distributeH"
+                            label="Distribute horizontally"
+                            disabled={count < 3}
+                            onClick={() => editor.distribute('x')}
+                        />
+                        <ToolButton
+                            icon="distributeV"
+                            label="Distribute vertically"
+                            disabled={count < 3}
+                            onClick={() => editor.distribute('y')}
+                        />
                     </div>
                 </Field>
             </Section>

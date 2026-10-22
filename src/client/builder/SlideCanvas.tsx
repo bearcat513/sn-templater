@@ -130,7 +130,9 @@ export function SlideCanvas({
         const additive = event.shiftKey || event.metaKey || event.ctrlKey
         let ids = selection
         if (additive) {
-            ids = selection.includes(element.id) ? selection.filter(id => id !== element.id) : [...selection, element.id]
+            ids = selection.includes(element.id)
+                ? selection.filter(id => id !== element.id)
+                : [...selection, element.id]
             onSelect(ids)
             if (!ids.includes(element.id)) {
                 event.stopPropagation()
@@ -142,7 +144,8 @@ export function SlideCanvas({
         }
         if (editing) onEditing(null)
         const boxes = new Map<string, Box>()
-        for (const each of elements) if (ids.includes(each.id)) boxes.set(each.id, { x: each.x, y: each.y, w: each.w, h: each.h })
+        for (const each of elements)
+            if (ids.includes(each.id)) boxes.set(each.id, { x: each.x, y: each.y, w: each.w, h: each.h })
         begin(event, {
             kind: 'move',
             start: toSheet(event),
@@ -204,7 +207,12 @@ export function SlideCanvas({
             let shown: Guide[] = []
             if (!event.altKey) {
                 const others = elements.filter(element => !current.boxes.has(element.id))
-                const snapped = snap({ ...moving, x: moving.x + dx, y: moving.y + dy }, others, sheet, SNAP_PIXELS / scale)
+                const snapped = snap(
+                    { ...moving, x: moving.x + dx, y: moving.y + dy },
+                    others,
+                    sheet,
+                    SNAP_PIXELS / scale
+                )
                 if (!(event.shiftKey && dx === 0)) dx += snapped.dx
                 if (!(event.shiftKey && dy === 0)) dy += snapped.dy
                 shown = snapped.guides
@@ -232,7 +240,9 @@ export function SlideCanvas({
             onChange(
                 live => ({
                     ...live,
-                    elements: live.elements.map(element => (element.id === current.id ? { ...element, rotation } : element)),
+                    elements: live.elements.map(element =>
+                        element.id === current.id ? { ...element, rotation } : element
+                    ),
                 }),
                 merge.current
             )
@@ -240,11 +250,19 @@ export function SlideCanvas({
         }
 
         if (current.kind === 'resize') {
-            const box = resizedTurned(current.box, current.handle, point, current.lock !== event.shiftKey, current.rotation)
+            const box = resizedTurned(
+                current.box,
+                current.handle,
+                point,
+                current.lock !== event.shiftKey,
+                current.rotation
+            )
             onChange(
                 live => ({
                     ...live,
-                    elements: live.elements.map(element => (element.id === current.id ? { ...element, ...box } : element)),
+                    elements: live.elements.map(element =>
+                        element.id === current.id ? { ...element, ...box } : element
+                    ),
                 }),
                 merge.current
             )
@@ -336,7 +354,9 @@ export function SlideCanvas({
                 })
                 if (hit?.type === 'table') {
                     const [x, y] = local(hit)
-                    const target = tableCells(hit).find(entry => x >= entry.x && x <= entry.x + entry.w && y >= entry.y && y <= entry.y + entry.h)
+                    const target = tableCells(hit).find(
+                        entry => x >= entry.x && x <= entry.x + entry.w && y >= entry.y && y <= entry.y + entry.h
+                    )
                     if (!target) return
                     onSelect([hit.id])
                     onEditing(`${hit.id}#${target.row},${target.column}`)
@@ -367,17 +387,36 @@ export function SlideCanvas({
             <div className="tp-canvas__layer">
                 {elements.map(element =>
                     element.type === 'line' ? (
-                        <LineHit key={element.id} line={element} scale={scale} onPointerDown={event => onElementDown(event, element)} />
+                        <LineHit
+                            key={element.id}
+                            line={element}
+                            scale={scale}
+                            onPointerDown={event => onElementDown(event, element)}
+                        />
                     ) : (
                         <div
                             key={element.id}
-                            className={cx('tp-canvas__hit', selection.includes(element.id) && 'is-selected')}
+                            className={cx(
+                                'tp-canvas__hit',
+                                'tp-canvas-element',
+                                selection.includes(element.id) && 'is-selected'
+                            )}
                             style={{
                                 left: element.x * scale,
                                 top: element.y * scale,
                                 width: element.w * scale,
                                 height: element.h * scale,
                                 ...turned(element),
+                            }}
+                            // Reachable with Tab: focusing one selects it, and then the builder's keys move,
+                            // resize-by-inspector, delete and edit it as they do a clicked one.
+                            tabIndex={0}
+                            role="button"
+                            aria-label={describeElement(element)}
+                            aria-pressed={selection.includes(element.id)}
+                            onFocus={event => {
+                                if (event.currentTarget.matches(':focus-visible') && !selection.includes(element.id))
+                                    onSelect([element.id])
                             }}
                             onPointerDown={event => onElementDown(event, element)}
                         />
@@ -702,11 +741,7 @@ function TextEditor({
     const frameHeight = frame.h * scale
     const shown = Math.max(height, 0)
     const top =
-        element.valign === 'middle'
-            ? (frameHeight - shown) / 2
-            : element.valign === 'bottom'
-              ? frameHeight - shown
-              : 0
+        element.valign === 'middle' ? (frameHeight - shown) / 2 : element.valign === 'bottom' ? frameHeight - shown : 0
 
     return (
         <textarea
@@ -762,4 +797,22 @@ function TextEditor({
             }}
         />
     )
+}
+
+/** What a screen reader calls an element on the slide: its kind, and its first words if it has any. */
+function describeElement(element: SlideElement): string {
+    switch (element.type) {
+        case 'shape': {
+            const words = element.text?.trim().split('\n')[0]?.slice(0, 60)
+            return words ? `Text: ${words}` : `Shape: ${element.shape}`
+        }
+        case 'image':
+            return 'Picture'
+        case 'table':
+            return `Table, ${element.rows} by ${element.columns}`
+        case 'chart':
+            return `Chart${element.title ? `: ${element.title}` : ''}`
+        case 'line':
+            return 'Line'
+    }
 }

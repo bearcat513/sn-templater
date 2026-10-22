@@ -1,3 +1,4 @@
+import { openTemplate } from '../data/templates'
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { loadRecords, type RecordSelection } from '../data/loader'
 import { useSession } from '../data/session'
@@ -5,15 +6,18 @@ import { describeError, log, useInspect } from '../debug/log'
 import { renderPdfDocument, type PdfRenderResult, type RenderJob } from '../engine/render'
 import type { PdfTemplate } from '../engine/template'
 import { documentFileName } from '../engine/tokens'
-import { readTemplate } from '../engine/validate'
+import { prepareFonts } from '../hooks/useFonts'
 import { useAsync } from '../hooks/useAsync'
 import { downloadBytes } from '../hooks/usePdf'
 import type { Navigate } from '../hooks/useRoute'
-import { RecordService } from '../services/records'
+import { AttachmentService } from '../services/attachments'
 import { SchemaService, type TableSchema } from '../services/schema'
 import { TemplateService, type TemplateRecord } from '../services/templates'
 import { Icon } from '../ui/icons'
 import { Button, Notice, Spinner } from '../ui/controls'
+import { ProblemsPanel } from '../ui/ProblemsPanel'
+import { Progress } from '../ui/Progress'
+import { EmailModal } from './EmailModal'
 import { useToast } from '../ui/overlays'
 import { SelectionForm, Step, TemplateChooser, type Selection } from './common'
 
@@ -64,7 +68,11 @@ export function ExportView({ params, navigate }: { params: URLSearchParams; navi
     }, [templates.data, templateId])
 
     const full = useAsync(() => TemplateService.get(templateId), [templateId], Boolean(templateId))
-    const schema = useAsync(() => SchemaService.table(fromTable || full.data!.table), [fromTable, full.data], Boolean(fromTable || full.data))
+    const schema = useAsync(
+        () => SchemaService.table(fromTable || full.data!.table),
+        [fromTable, full.data],
+        Boolean(fromTable || full.data)
+    )
 
     /* ------------------------------ records ------------------------------ */
 
@@ -97,7 +105,9 @@ export function ExportView({ params, navigate }: { params: URLSearchParams; navi
     useInspect('export.template', full.data)
     useInspect('export.job', output?.job)
     const [busy, setBusy] = useState(false)
-    const [progress, setProgress] = useState('')
+    const [progress, setProgress] = useState<{ label: string; done?: number; total?: number } | null>(null)
+    const cancel = useRef<AbortController | null>(null)
+    const [emailing, setEmailing] = useState(false)
     const [error, setError] = useState('')
     const urlRef = useRef('')
 
@@ -111,11 +121,16 @@ export function ExportView({ params, navigate }: { params: URLSearchParams; navi
     const ready = Boolean(full.data && schema.data && (selection.mode === 'many' || selection.sysId))
 
     const make = async (record: TemplateRecord, tableSchema: TableSchema, current: Selection) => {
+        const controller = new AbortController()
+        cancel.current = controller
+        const stopIfCancelled = () => {
+            if (controller.signal.aborted) throw new DOMException('Cancelled', 'AbortError')
+        }
         setBusy(true)
         setError('')
-        setProgress('Reading records…')
+        setProgress({ label: 'Reading records' })
         try {
-            const read = readTemplate(record.body ?? '', record.kind, tableSchema.fields)
+            const read = await openTemplate(record, tableSchema.fields)
             if (!read.ok) throw new Error(`“${record.name}” could not be read: ${read.error}`)
             const template: PdfTemplate = read.value
             const pick: RecordSelection =
@@ -129,9 +144,14 @@ export function ExportView({ params, navigate }: { params: URLSearchParams; navi
                 session,
                 title: record.name,
                 selection: pick,
-                onProgress: (done, total) => total && setProgress(`Reading related lists… ${done} of ${total}`),
+                signal: controller.signal,
+                onProgress: (done, total) => total && setProgress({ label: 'Reading related lists', done, total }),
             })
-            setProgress('Drawing the PDF…')
+            stopIfCancelled()
+            setProgress({ label: 'Getting the fonts ready' })
+            await prepareFonts(template, job)
+            stopIfCancelled()
+            setProgress({ label: `Drawing ${job.records.length} record${job.records.length === 1 ? '' : 's'}` })
             // Let the progress line paint before the synchronous render.
             await new Promise(resolve => window.setTimeout(resolve, 16))
             const drawn = log.time('render', `Export PDF drawn for “${record.name}”`)
@@ -145,7 +165,9 @@ export function ExportView({ params, navigate }: { params: URLSearchParams; navi
             })
 
             if (urlRef.current) URL.revokeObjectURL(urlRef.current)
-            const url = URL.createObjectURL(new Blob([result.bytes as unknown as BlobPart], { type: 'application/pdf' }))
+            const url = URL.createObjectURL(
+                new Blob([result.bytes as unknown as BlobPart], { type: 'application/pdf' })
+            )
             urlRef.current = url
 
             const single = job.records.length === 1 && current.mode === 'one' ? job.records[0]! : null
@@ -158,12 +180,17 @@ export function ExportView({ params, navigate }: { params: URLSearchParams; navi
                 single: single ? { table: tableSchema.name, sysId: current.sysId } : null,
             })
         } catch (failure) {
+            if (failure instanceof DOMException && failure.name === 'AbortError') {
+                toast('Export cancelled.', 'info')
+                return
+            }
             const { message, data } = describeError(failure)
             log.error('export', message, data)
             setError(failure instanceof Error ? failure.message : String(failure))
         } finally {
+            cancel.current = null
             setBusy(false)
-            setProgress('')
+            setProgress(null)
         }
     }
 
@@ -179,12 +206,34 @@ export function ExportView({ params, navigate }: { params: URLSearchParams; navi
     }, [ready, full.data, schema.data])
 
     const [attaching, setAttaching] = useState(false)
+    /** The PDF's attachment on its record, once attached — so attaching twice does not make two. */
+    const attached = useRef<{ url: string; sysId: string } | null>(null)
+
+    const attachOnce = async (): Promise<string> => {
+        if (!output?.single) throw new Error('Only a PDF of one record can be attached to it.')
+        if (attached.current?.url === output.url) return attached.current.sysId
+        const file = await AttachmentService.upload(
+            output.single.table,
+            output.single.sysId,
+            output.fileName,
+            output.result.bytes,
+            'application/pdf'
+        )
+        attached.current = { url: output.url, sysId: file.sysId }
+        return file.sysId
+    }
+
     const attach = async () => {
         if (!output?.single) return
         setAttaching(true)
         try {
-            await RecordService.attach(output.single.table, output.single.sysId, output.fileName, output.result.bytes, 'application/pdf')
-            toast(`Attached ${output.fileName} to ${output.job.records[0]?.label ?? 'the record'}.`)
+            const already = attached.current?.url === output.url
+            await attachOnce()
+            toast(
+                already
+                    ? `${output.fileName} is already attached.`
+                    : `Attached ${output.fileName} to ${output.job.records[0]?.label ?? 'the record'}.`
+            )
         } catch (failure) {
             toast(failure instanceof Error ? failure.message : 'The PDF could not be attached.', 'critical')
         } finally {
@@ -207,7 +256,8 @@ export function ExportView({ params, navigate }: { params: URLSearchParams; navi
                 <div>
                     <h1>Export to PDF</h1>
                     <p className="tp-muted">
-                        One record with its related lists, or a batch — each record starting on a fresh page of the same file.
+                        One record with its related lists, or a batch — each record starting on a fresh page of the same
+                        file.
                     </p>
                 </div>
             </header>
@@ -272,9 +322,20 @@ export function ExportView({ params, navigate }: { params: URLSearchParams; navi
                                 Present instead
                             </Button>
                         )}
-                        {progress && <span className="tp-subtle">{progress}</span>}
                     </div>
-                    <Notice kind="critical" title={error ? 'The PDF could not be made' : undefined} lines={error ? [error] : []} />
+                    {progress && (
+                        <Progress
+                            label={progress.label}
+                            done={progress.done}
+                            total={progress.total}
+                            onCancel={() => cancel.current?.abort()}
+                        />
+                    )}
+                    <Notice
+                        kind="critical"
+                        title={error ? 'The PDF could not be made' : undefined}
+                        lines={error ? [error] : []}
+                    />
                 </div>
 
                 <div className="tp-export__result">
@@ -298,6 +359,11 @@ export function ExportView({ params, navigate }: { params: URLSearchParams; navi
                                             Attach to record
                                         </Button>
                                     )}
+                                    {output.single && (
+                                        <Button icon="mail" onClick={() => setEmailing(true)}>
+                                            Email…
+                                        </Button>
+                                    )}
                                     <Button
                                         variant="primary"
                                         icon="download"
@@ -307,18 +373,16 @@ export function ExportView({ params, navigate }: { params: URLSearchParams; navi
                                     </Button>
                                 </div>
                             </div>
-                            <Notice
-                                kind="warning"
-                                lines={[
-                                    ...(output.result.unknownTokens.length
+                            <ProblemsPanel
+                                unknownTokens={output.result.unknownTokens}
+                                problems={output.result.problems}
+                                notes={
+                                    output.matched > output.job.records.length
                                         ? [
-                                              `Printed blank — no such field: ${output.result.unknownTokens
-                                                  .map(token => `{{${token}}}`)
-                                                  .join(', ')}`,
+                                              `${(output.matched - output.job.records.length).toLocaleString()} matching records were left out: one PDF holds at most ${output.job.records.length}.`,
                                           ]
-                                        : []),
-                                    ...output.result.problems,
-                                ]}
+                                        : []
+                                }
                             />
                             <iframe className="tp-export__frame" src={`${output.url}#view=FitH`} title="Exported PDF" />
                         </div>
@@ -327,7 +391,7 @@ export function ExportView({ params, navigate }: { params: URLSearchParams; navi
                             {busy ? (
                                 <>
                                     <Spinner size={28} />
-                                    <p>{progress || 'Working…'}</p>
+                                    <p>{progress?.label ?? 'Working'}…</p>
                                 </>
                             ) : (
                                 <>
@@ -339,6 +403,17 @@ export function ExportView({ params, navigate }: { params: URLSearchParams; navi
                     )}
                 </div>
             </div>
+            {output?.single && (
+                <EmailModal
+                    open={emailing}
+                    fileName={output.fileName}
+                    recordLabel={output.job.records[0]?.label ?? 'the record'}
+                    table={output.single.table}
+                    sysId={output.single.sysId}
+                    attach={attachOnce}
+                    onClose={() => setEmailing(false)}
+                />
+            )}
         </div>
     )
 }

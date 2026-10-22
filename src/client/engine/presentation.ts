@@ -32,7 +32,7 @@
  * and speaker notes belong to presenting. The PDF draws every element and
  * none of the rest — it is the handout, not the show.
  */
-import { isEmbeddableImage } from "./image";
+import { isStorablePicture } from "./image";
 import { FONT_FAMILIES, type FontFamily } from "./pdfFonts";
 import { CHART_KINDS, type ChartKind, type PdfPageSetup } from "./template";
 
@@ -351,7 +351,10 @@ const colorOr = (value: unknown, fallback: string): string => optionalColor(valu
 const oneOf = <T extends string>(value: unknown, allowed: readonly T[], fallback: T): T =>
   allowed.includes(value as T) ? (value as T) : fallback;
 
-const id = (value: unknown): string => String(value ?? "").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 40) || newId();
+const id = (value: unknown): string =>
+  String(value ?? "")
+    .replace(/[^A-Za-z0-9_-]/g, "")
+    .slice(0, 40) || newId();
 
 /** Room for elements to hang off the sheet, as they can while being dragged, without losing them. */
 const COORDINATE_LIMIT = 4000;
@@ -368,7 +371,9 @@ const BUILD_NAMES = BUILD_EFFECTS.map(entry => entry.effect);
 function readBox(raw: Record<string, unknown>, min = 1): ElementBox {
   const opacity = raw.opacity === undefined ? undefined : num(raw.opacity, 1, 0.05, 1);
   const rotation = min > 0 && raw.rotation !== undefined ? normalizeRotation(num(raw.rotation, 0, -3600, 3600)) : 0;
-  const link = String(raw.link ?? "").trim().slice(0, 2000);
+  const link = String(raw.link ?? "")
+    .trim()
+    .slice(0, 2000);
   const build = isRecord(raw.build) && BUILD_NAMES.includes(raw.build.effect as BuildEffect) ? raw.build : null;
   return {
     id: id(raw.id),
@@ -379,7 +384,9 @@ function readBox(raw: Record<string, unknown>, min = 1): ElementBox {
     ...(opacity !== undefined && opacity < 1 ? { opacity } : {}),
     ...(rotation ? { rotation } : {}),
     ...(link ? { link } : {}),
-    ...(build ? { build: { effect: build.effect as BuildEffect, order: Math.trunc(num(build.order, 1, 1, 999)) } } : {}),
+    ...(build
+      ? { build: { effect: build.effect as BuildEffect, order: Math.trunc(num(build.order, 1, 1, 999)) } }
+      : {}),
   };
 }
 
@@ -407,11 +414,14 @@ function readText(raw: Record<string, unknown>): ElementText {
 function readTable(value: Record<string, unknown>, box: ElementBox): TableElement | null {
   const raw = (Array.isArray(value.rows) ? value.rows : []).slice(0, MAX_TABLE_ROWS);
   const width = Math.min(MAX_TABLE_COLUMNS, Math.max(1, ...raw.map(row => (Array.isArray(row) ? row.length : 0))));
-  const rows = raw.map(row => Array.from({ length: width }, (_, index) => String((Array.isArray(row) ? row[index] : "") ?? "").slice(0, 1000)));
+  const rows = raw.map(row =>
+    Array.from({ length: width }, (_, index) => String((Array.isArray(row) ? row[index] : "") ?? "").slice(0, 1000)),
+  );
   if (!rows.length) return null;
-  const columns = Array.isArray(value.columns) && value.columns.length === width
-    ? value.columns.map(share => num(share, 1, 0.1, 100))
-    : undefined;
+  const columns =
+    Array.isArray(value.columns) && value.columns.length === width
+      ? value.columns.map(share => num(share, 1, 0.1, 100))
+      : undefined;
   const family = FONT_FAMILIES.includes(value.family as FontFamily) ? (value.family as FontFamily) : undefined;
   const headerFill = optionalColor(value.headerFill);
   const headerColor = optionalColor(value.headerColor);
@@ -472,7 +482,7 @@ function readElement(value: unknown): SlideElement | null {
       };
     case "image": {
       const source = typeof value.source === "string" ? value.source.trim() : "";
-      if (!source || !isEmbeddableImage(source)) return null;
+      if (!source || !isStorablePicture(source)) return null;
       const stroke = optionalColor(value.stroke);
       return {
         type: "image",
@@ -486,7 +496,9 @@ function readElement(value: unknown): SlideElement | null {
     case "chart": {
       const template = String(value.template ?? "");
       if (!/^[0-9a-f]{32}$/.test(template)) return null;
-      const name = String(value.name ?? "").trim().slice(0, 100);
+      const name = String(value.name ?? "")
+        .trim()
+        .slice(0, 100);
       return {
         type: "chart",
         ...box,
@@ -524,9 +536,13 @@ function readSection(value: unknown): DeckSection | null {
   if (!isRecord(value)) return null;
   const template = String(value.template ?? "");
   if (!/^[0-9a-f]{32}$/.test(template)) return null;
-  const name = String(value.name ?? "").trim().slice(0, 100);
+  const name = String(value.name ?? "")
+    .trim()
+    .slice(0, 100);
   const title = String(value.title ?? "").slice(0, 200);
-  const orderBy = String(value.orderBy ?? "").trim().slice(0, 120);
+  const orderBy = String(value.orderBy ?? "")
+    .trim()
+    .slice(0, 120);
   return {
     id: id(value.id),
     template,
@@ -541,7 +557,9 @@ function readSection(value: unknown): DeckSection | null {
 function readSlide(value: unknown): CustomSlide | null {
   if (!isRecord(value)) return null;
   const background = optionalColor(value.background);
-  const name = String(value.name ?? "").trim().slice(0, 80);
+  const name = String(value.name ?? "")
+    .trim()
+    .slice(0, 80);
   return {
     id: id(value.id),
     ...(name ? { name } : {}),
@@ -608,11 +626,16 @@ export function readPresentation(raw: unknown): PresentationBody {
     for (const [key, entry] of Object.entries(source.options).slice(0, 1000)) {
       if (!isRecord(entry) || !key || key.length > 120) continue;
       const notes = String(entry.notes ?? "").slice(0, MAX_NOTES_LENGTH);
-      const transition = transitions.includes(entry.transition as Transition) ? (entry.transition as Transition) : undefined;
-      if (notes.trim() || transition) options[key] = { ...(notes.trim() ? { notes } : {}), ...(transition ? { transition } : {}) };
+      const transition = transitions.includes(entry.transition as Transition)
+        ? (entry.transition as Transition)
+        : undefined;
+      if (notes.trim() || transition)
+        options[key] = { ...(notes.trim() ? { notes } : {}), ...(transition ? { transition } : {}) };
     }
   }
-  const transition = transitions.includes(source.transition as Transition) ? (source.transition as Transition) : undefined;
+  const transition = transitions.includes(source.transition as Transition)
+    ? (source.transition as Transition)
+    : undefined;
 
   return {
     version: 1,
@@ -659,7 +682,11 @@ export const serializePresentation = (body: PresentationBody): string => JSON.st
 
 /** The chart templates a presentation's custom slides place, each once. */
 export const presentationChartIds = (body: PresentationBody): string[] => [
-  ...new Set(body.slides.flatMap(slide => slide.elements.flatMap(element => (element.type === "chart" ? [element.template] : [])))),
+  ...new Set(
+    body.slides.flatMap(slide =>
+      slide.elements.flatMap(element => (element.type === "chart" ? [element.template] : [])),
+    ),
+  ),
 ];
 
 /* -------------------------------- arranging ------------------------------ */
@@ -777,7 +804,12 @@ export function layoutSlide(layout: SlideLayout, frame: Frame): CustomSlide {
   const title = (box: Omit<ElementBox, "id">, size: number, extra: Partial<ElementText> = {}) =>
     textBox(frame, box, { placeholder: "Click to add title", size, bold: true, color: page.accentColor, ...extra });
   const body = (box: Omit<ElementBox, "id">, extra: Partial<ElementText> = {}) =>
-    textBox(frame, box, { placeholder: "Click to add text", size: Math.max(14, page.fontSize + 2), bullets: true, ...extra });
+    textBox(frame, box, {
+      placeholder: "Click to add text",
+      size: Math.max(14, page.fontSize + 2),
+      bullets: true,
+      ...extra,
+    });
 
   const titleHeight = Math.round(innerHeight * 0.2);
   let elements: SlideElement[] = [];

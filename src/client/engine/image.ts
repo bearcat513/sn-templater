@@ -156,7 +156,8 @@ function decodePng(bytes: Uint8Array): ImageResult {
       };
       // Compression and filter method are single-valued in the format; a file
       // claiming otherwise is not a PNG this can reason about.
-      if (bytes[start + 10] !== 0 || bytes[start + 11] !== 0) return fail("This PNG uses a compression this app cannot read.");
+      if (bytes[start + 10] !== 0 || bytes[start + 11] !== 0)
+        return fail("This PNG uses a compression this app cannot read.");
     } else if (name === "PLTE") {
       palette = bytes.subarray(start, start + length);
     } else if (name === "tRNS") {
@@ -326,6 +327,20 @@ export function decodeImage(source: string): ImageResult {
 
 /** Is this something `decodeImage` will take? Used where only yes/no matters. */
 export const isEmbeddableImage = (source: string): boolean => decodeImage(source).ok;
+
+/**
+ * A picture kept as an attachment rather than inside the body: the record's
+ * attachment named `templater-<hash of its content>.png` (or `.jpg`). The
+ * loader swaps these for `data:` URLs before anything is drawn (see
+ * ../data/pictures.ts); one that reaches the renderer unswapped is a picture
+ * that could not be read, and is reported like any other.
+ */
+export const PICTURE_REF = /^attachment:(templater-[0-9a-f]{16,64}\.(?:png|jpg))$/;
+
+export const isPictureRef = (source: string): boolean => PICTURE_REF.test(source);
+
+/** What a body may hold as a picture: one embedded, or one kept as an attachment. */
+export const isStorablePicture = (source: string): boolean => isPictureRef(source) || isEmbeddableImage(source);
 
 /**
  * The size an image is drawn at, in points, given a width to fit it to.

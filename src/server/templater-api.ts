@@ -1,4 +1,12 @@
-import { gs, GlideDate, GlideDateTime, GlideRecord, GlideRecordSecure, GlideTableHierarchy } from '@servicenow/glide'
+import {
+    gs,
+    GlideDate,
+    GlideDateTime,
+    GlideEmailOutbound,
+    GlideRecord,
+    GlideRecordSecure,
+    GlideTableHierarchy,
+} from '@servicenow/glide'
 
 /**
  * The scripted REST API behind the Templater UI page.
@@ -12,6 +20,9 @@ import { gs, GlideDate, GlideDateTime, GlideRecord, GlideRecordSecure, GlideTabl
  *   incident's fields live on `incident` *and* `task`, which `sys_dictionary`
  *   only tells you a table at a time.
  * - **Which tables point at it?** The candidates for a related list.
+ *
+ * And it sends the one thing the browser cannot: an email, with a link to a
+ * PDF the browser has attached to a record.
  */
 
 const USER_ROLE = 'x_1040823_template.user'
@@ -19,7 +30,11 @@ const DEBUG_PROPERTY = 'x_1040823_template.debug'
 const TABLE_NAME = /^[a-z0-9_]{1,80}$/
 const MAX_RELATIONSHIPS = 400
 
-type Request = { pathParams: Record<string, string>; queryParams: Record<string, string[]> }
+type Request = {
+    pathParams: Record<string, string>
+    queryParams: Record<string, string[]>
+    body?: { data?: unknown }
+}
 type Response = {
     setStatus(code: number): void
     setBody(body: unknown): void
@@ -205,4 +220,109 @@ export function getContext(_request: Request, response: Response) {
         canEdit: gs.hasRole('x_1040823_template.editor'),
         debug: debugOn(),
     })
+}
+
+/* ------------------------------------------------------------------ email */
+
+const EMAIL = /^[^\s@<>(),;:"]+@[^\s@<>(),;:"]+\.[^\s@<>(),;:"]+$/
+const SYS_ID = /^[0-9a-f]{32}$/
+const MAX_RECIPIENTS = 20
+
+const escapeHtml = (text: string): string =>
+    text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+
+/**
+ * POST /email — sends a link to a PDF that has been attached to a record.
+ *
+ * Body: `{ table, sysId, attachment, to: string[], subject, message }`. The
+ * caller must be able to read the record, and the attachment must be that
+ * record's: the email can only point at a file its sender can already open.
+ * The file itself is not sent — the link opens it on the instance, where
+ * each recipient's own access decides whether they can.
+ */
+export function sendEmail(request: Request, response: Response) {
+    timed('POST /email', response, () => emailRoute(request, response))
+}
+
+function emailRoute(request: Request, response: Response) {
+    if (!allowed(response)) return
+    const input = (request.body && request.body.data) || {}
+    const body = input as Record<string, unknown>
+    const table = readableTable(String(body.table || ''), response)
+    if (!table) return
+
+    const sysId = String(body.sysId || '')
+    const record = new GlideRecordSecure(table)
+    if (!SYS_ID.test(sysId) || !record.get(sysId)) {
+        refuse(response, 404, 'That record could not be found, or you cannot read it.')
+        return
+    }
+
+    const attachmentId = String(body.attachment || '')
+    const attachment = new GlideRecord('sys_attachment')
+    if (
+        !SYS_ID.test(attachmentId) ||
+        !attachment.get(attachmentId) ||
+        String(attachment.getValue('table_name')) !== table ||
+        String(attachment.getValue('table_sys_id')) !== sysId
+    ) {
+        refuse(response, 400, 'The PDF is not attached to that record.')
+        return
+    }
+
+    const to = (Array.isArray(body.to) ? body.to : []).map(address => String(address).trim()).filter(Boolean)
+    if (!to.length || to.length > MAX_RECIPIENTS || !to.every(address => EMAIL.test(address))) {
+        refuse(response, 400, 'Give between 1 and ' + MAX_RECIPIENTS + ' email addresses.')
+        return
+    }
+    const subject =
+        String(body.subject || '')
+            .trim()
+            .slice(0, 200) || String(attachment.getValue('file_name'))
+    const message = String(body.message || '').slice(0, 4000)
+
+    const instance = String(gs.getProperty('glide.servlet.uri', '')).replace(/\/+$/, '')
+    const fileUrl = instance + '/sys_attachment.do?sys_id=' + attachmentId
+    const recordUrl = instance + '/' + table + '.do?sys_id=' + sysId
+    const label = String(record.getDisplayValue(String(record.getDisplayName())) || sysId)
+    const sender = String(gs.getUserDisplayName())
+
+    const html =
+        (message ? '<p>' + escapeHtml(message).replace(/\r?\n/g, '<br>') + '</p>' : '') +
+        '<p><a href="' +
+        escapeHtml(fileUrl) +
+        '">' +
+        escapeHtml(String(attachment.getValue('file_name'))) +
+        '</a>' +
+        ' — attached to <a href="' +
+        escapeHtml(recordUrl) +
+        '">' +
+        escapeHtml(label) +
+        '</a>.</p>' +
+        '<p style="color:#666">Sent by ' +
+        escapeHtml(sender) +
+        ' with Templater. ' +
+        'The link opens the file on the instance; you need access to the record to open it.</p>'
+
+    const email = new GlideEmailOutbound()
+    email.setSubject(subject)
+    email.setBody(html)
+    const replyTo = String(gs.getUser().getEmail() || '')
+    if (replyTo) email.setReplyTo(replyTo)
+    for (const address of to) email.addAddress('to', address)
+    email.save()
+
+    gs.info(
+        '[Templater] ' +
+            gs.getUserName() +
+            ' emailed ' +
+            attachmentId +
+            ' on ' +
+            table +
+            '/' +
+            sysId +
+            ' to ' +
+            to.length
+    )
+    response.setBody({ sent: to.length })
 }

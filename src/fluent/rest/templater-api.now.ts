@@ -1,6 +1,6 @@
 import '@servicenow/sdk/global'
 import { RestApi } from '@servicenow/sdk/core'
-import { getContext, getSchema, getTables } from '../../server/templater-api'
+import { getContext, getSchema, getTables, sendEmail } from '../../server/templater-api'
 
 /**
  * /api/x_1040823_template/templater/...
@@ -39,6 +39,14 @@ RestApi({
             path: '/me',
             shortDescription: "The caller's name, email and today's date in their format.",
             script: getContext,
+        },
+        {
+            $id: Now.ID['templater-api-email'],
+            name: 'email',
+            method: 'POST',
+            path: '/email',
+            shortDescription: 'Emails a link to a PDF attached to a record the caller can read.',
+            script: sendEmail,
         },
     ],
 })

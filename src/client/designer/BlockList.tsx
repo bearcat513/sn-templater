@@ -1,9 +1,17 @@
 import React, { useState } from 'react'
-import { BLOCK_TYPES, MAX_BLOCKS, blankBlock, type BlockType, type PdfBlock, type TemplateKind } from '../engine/template'
+import {
+    BLOCK_TYPES,
+    MAX_BLOCKS,
+    blankBlock,
+    type BlockType,
+    type PdfBlock,
+    type TemplateKind,
+} from '../engine/template'
 import type { TableSchema } from '../services/schema'
 import { Icon, type IconName } from '../ui/icons'
 import { IconButton, cx } from '../ui/controls'
 import { BlockFields, summarise } from './BlockFields'
+import { ConditionFields, describeCondition } from './RepeatFields'
 
 const BLOCK_ICONS: Record<BlockType, IconName> = {
     heading: 'file',
@@ -24,6 +32,7 @@ const BLOCK_ICONS: Record<BlockType, IconName> = {
     callout: 'info',
     list: 'list',
     table: 'table',
+    repeat: 'refresh',
 }
 
 type Props = {
@@ -33,13 +42,15 @@ type Props = {
     schema: TableSchema
     /** What the list is of, for screen readers: "Record blocks", "Cover blocks". */
     label: string
+    /** Inside a repeat: no repeat can be added there. */
+    nested?: boolean
 }
 
 /**
  * The blocks of a template, top to bottom: open one to edit it, drag or use
  * the arrows to move it, and add new ones from the palette underneath.
  */
-export function BlockList({ blocks, onChange, kind, schema, label }: Props) {
+export function BlockList({ blocks, onChange, kind, schema, label, nested = false }: Props) {
     const [open, setOpen] = useState<number | null>(null)
     const [dragging, setDragging] = useState<number | null>(null)
     const [over, setOver] = useState<number | null>(null)
@@ -128,10 +139,19 @@ export function BlockList({ blocks, onChange, kind, schema, label }: Props) {
                                         <Icon name={BLOCK_ICONS[block.type]} size={13} />
                                         {meta?.label ?? block.type}
                                     </span>
-                                    <span className="tp-block__summary tp-truncate">{summarise(block)}</span>
+                                    <span className="tp-block__summary tp-truncate">
+                                        {summarise(block)}
+                                        {block.when ? ` · ${describeCondition(block.when)}` : ''}
+                                    </span>
                                 </button>
                                 <div className="tp-block__actions">
-                                    <IconButton icon="chevronUp" label="Move up" size="sm" disabled={index === 0} onClick={() => move(index, index - 1)} />
+                                    <IconButton
+                                        icon="chevronUp"
+                                        label="Move up"
+                                        size="sm"
+                                        disabled={index === 0}
+                                        onClick={() => move(index, index - 1)}
+                                    />
                                     <IconButton
                                         icon="chevronDown"
                                         label="Move down"
@@ -139,13 +159,32 @@ export function BlockList({ blocks, onChange, kind, schema, label }: Props) {
                                         disabled={index === blocks.length - 1}
                                         onClick={() => move(index, index + 1)}
                                     />
-                                    <IconButton icon="copy" label="Duplicate" size="sm" onClick={() => duplicate(index)} />
-                                    <IconButton icon="trash" label="Remove" size="sm" tone="danger" onClick={() => remove(index)} />
+                                    <IconButton
+                                        icon="copy"
+                                        label="Duplicate"
+                                        size="sm"
+                                        onClick={() => duplicate(index)}
+                                    />
+                                    <IconButton
+                                        icon="trash"
+                                        label="Remove"
+                                        size="sm"
+                                        tone="danger"
+                                        onClick={() => remove(index)}
+                                    />
                                 </div>
                             </div>
                             {expanded && (
                                 <div className="tp-block__body">
-                                    <BlockFields block={block} schema={schema} onChange={changes => patch(index, changes)} />
+                                    <BlockFields
+                                        block={block}
+                                        schema={schema}
+                                        kind={kind}
+                                        onChange={changes => patch(index, changes)}
+                                    />
+                                    {block.type !== 'pageBreak' && (
+                                        <ConditionFields block={block} onChange={when => patch(index, { when })} />
+                                    )}
                                 </div>
                             )}
                         </li>
@@ -156,8 +195,14 @@ export function BlockList({ blocks, onChange, kind, schema, label }: Props) {
             {blocks.length < MAX_BLOCKS && (
                 <div className="tp-palette" role="group" aria-label="Add a block">
                     <span className="tp-palette__label">Add</span>
-                    {BLOCK_TYPES.map(entry => (
-                        <button key={entry.type} type="button" className="tp-chip" title={entry.description} onClick={() => add(entry.type)}>
+                    {BLOCK_TYPES.filter(entry => !nested || entry.type !== 'repeat').map(entry => (
+                        <button
+                            key={entry.type}
+                            type="button"
+                            className="tp-chip"
+                            title={entry.description}
+                            onClick={() => add(entry.type)}
+                        >
                             <Icon name="plus" size={12} />
                             {entry.label}
                         </button>

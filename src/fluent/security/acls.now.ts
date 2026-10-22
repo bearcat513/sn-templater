@@ -60,8 +60,7 @@ Acl({
  * Allow ACLs are alternatives: either one lets a person change a presentation.
  * A record being created has no author yet, and its creator is about to be it.
  */
-const OWN_PRESENTATION =
-    "answer = current.isNewRecord() || current.getValue('sys_created_by') == gs.getUserName();"
+const OWN_PRESENTATION = "answer = current.isNewRecord() || current.getValue('sys_created_by') == gs.getUserName();"
 
 Acl({
     $id: Now.ID['presentation-read'],
@@ -123,4 +122,20 @@ Acl({
     roles: [templaterEditor],
     adminOverrides: true,
     description: 'Templater editors can delete any presentation.',
+})
+
+/*
+ * Template versions are a template's published history. Editors read them to
+ * compare and restore; nobody writes them but the business rule that keeps
+ * them, and they go when their template goes.
+ */
+
+Acl({
+    $id: Now.ID['template-version-read'],
+    type: 'record',
+    table: 'x_1040823_template_version',
+    operation: 'read',
+    roles: [templaterEditor],
+    adminOverrides: true,
+    description: 'Templater editors can read the versions of templates.',
 })

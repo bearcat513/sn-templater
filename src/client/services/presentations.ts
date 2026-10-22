@@ -1,4 +1,4 @@
-import { getJson, getList, query, request } from './http'
+import { assertUnchanged, getJson, getList, query, request } from './http'
 
 export const PRESENTATION_TABLE = 'x_1040823_template_presentation'
 const BASE = `/api/now/table/${PRESENTATION_TABLE}`
@@ -18,18 +18,24 @@ export type PresentationRecord = {
     /** User names, as the platform records them — `createdBy` is who may change it. */
     createdBy: string
     updatedBy: string
+    /** The platform's update counter, which tells whether someone else has saved since it was read. */
+    modCount: number
     /** Only present when the presentation was read on its own. */
     body?: string
 }
 
-export type PresentationInput = Pick<PresentationRecord, 'name' | 'template' | 'title' | 'query' | 'orderBy' | 'limit'> & {
+export type PresentationInput = Pick<
+    PresentationRecord,
+    'name' | 'template' | 'title' | 'query' | 'orderBy' | 'limit'
+> & {
     body: string
 }
 
 type Field = { value: string; display_value: string }
 type ApiPresentation = Record<string, Field>
 
-const LIST_FIELDS = 'sys_id,name,template,title,query,order_by,record_limit,sys_updated_on,sys_created_by,sys_updated_by'
+const LIST_FIELDS =
+    'sys_id,name,template,title,query,order_by,record_limit,sys_updated_on,sys_created_by,sys_updated_by,sys_mod_count'
 
 const toRecord = (row: ApiPresentation): PresentationRecord => ({
     sysId: row.sys_id?.value ?? '',
@@ -43,6 +49,7 @@ const toRecord = (row: ApiPresentation): PresentationRecord => ({
     updatedOn: row.sys_updated_on?.display_value ?? '',
     createdBy: row.sys_created_by?.value ?? '',
     updatedBy: row.sys_updated_by?.display_value ?? '',
+    modCount: Number(row.sys_mod_count?.value) || 0,
     ...(row.body ? { body: row.body.value ?? '' } : {}),
 })
 
@@ -97,7 +104,13 @@ export const PresentationService = {
         return toRecord(result)
     },
 
-    async update(sysId: string, input: Partial<PresentationInput>): Promise<PresentationRecord> {
+    /** Saves changes; with `expect`, refuses to save over someone else's (see `assertUnchanged`). */
+    async update(
+        sysId: string,
+        input: Partial<PresentationInput>,
+        options: { expect?: number } = {}
+    ): Promise<PresentationRecord> {
+        if (options.expect !== undefined) await assertUnchanged(PRESENTATION_TABLE, sysId, options.expect)
         const { result } = await getJson<{ result: ApiPresentation }>(read(sysId, {}), {
             method: 'PATCH',
             body: JSON.stringify(toApi(input)),

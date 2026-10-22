@@ -4,4 +4,4 @@ dist/
 node_modules/
 target/
 *.tsbuildinfo
-.jest_cache
+.jest_cachesrc/client/engine/fonts/data/

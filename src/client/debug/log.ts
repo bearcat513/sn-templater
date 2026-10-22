@@ -56,7 +56,8 @@ export const log = {
     },
 }
 
-export const formatMs = (ms: number): string => (ms < 1 ? `${ms.toFixed(2)}ms` : ms < 1000 ? `${Math.round(ms)}ms` : `${(ms / 1000).toFixed(2)}s`)
+export const formatMs = (ms: number): string =>
+    ms < 1 ? `${ms.toFixed(2)}ms` : ms < 1000 ? `${Math.round(ms)}ms` : `${(ms / 1000).toFixed(2)}s`
 
 /** A thrown value as something the console can show. */
 export function describeError(failure: unknown): { message: string; data?: unknown } {
@@ -85,7 +86,8 @@ export function installDebugCapture() {
             nativeConsole[method](...args)
             if (!isRecording()) return
             const [first, ...rest] = args
-            const message = typeof first === 'string' ? first : first instanceof Error ? first.message : safeString(first)
+            const message =
+                typeof first === 'string' ? first : first instanceof Error ? first.message : safeString(first)
             const data = first instanceof Error ? [first, ...rest] : rest
             write(level, 'console', message, data.length ? (data.length === 1 ? data[0] : data) : undefined)
         }
@@ -135,7 +137,7 @@ export function installDebugCapture() {
 
 function safeString(value: unknown): string {
     try {
-        return typeof value === 'object' ? JSON.stringify(value)?.slice(0, 200) ?? String(value) : String(value)
+        return typeof value === 'object' ? (JSON.stringify(value)?.slice(0, 200) ?? String(value)) : String(value)
     } catch {
         return String(value)
     }

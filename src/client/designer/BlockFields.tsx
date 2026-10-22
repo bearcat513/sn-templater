@@ -1,5 +1,12 @@
 import React from 'react'
-import { CALLOUT_TONES, type BlockAlign, type CalloutTone, type ListStyle, type PdfBlock } from '../engine/template'
+import {
+    CALLOUT_TONES,
+    type BlockAlign,
+    type CalloutTone,
+    type ListStyle,
+    type PdfBlock,
+    type TemplateKind,
+} from '../engine/template'
 import type { TableSchema } from '../services/schema'
 import { Button, ColorField, Field, IconButton, Input, NumberInput, Segmented, Select, Switch } from '../ui/controls'
 import { FieldPicker } from './FieldPicker'
@@ -7,6 +14,7 @@ import { ChartFields } from './ChartFields'
 import { ImagePicker } from './ImagePicker'
 import { ReferenceFields } from './ReferenceFields'
 import { RelatedListFields } from './RelatedListFields'
+import { RepeatFields } from './RepeatFields'
 import { TokenField } from './TokenTarget'
 
 /** The longest a table block grows from the designer: past this it is a related list's job. */
@@ -16,10 +24,18 @@ const MAX_TABLE_COLUMNS = 12
 type Props = {
     block: PdfBlock
     schema: TableSchema
+    /** The template's kind, for the blocks a repeat adds. */
+    kind?: TemplateKind
     onChange: (changes: Record<string, unknown>) => void
 }
 
-function AlignControl({ value, onChange }: { value: BlockAlign | undefined; onChange: (align: BlockAlign | undefined) => void }) {
+function AlignControl({
+    value,
+    onChange,
+}: {
+    value: BlockAlign | undefined
+    onChange: (align: BlockAlign | undefined) => void
+}) {
     return (
         <Segmented<BlockAlign>
             label="Alignment"
@@ -36,8 +52,10 @@ function AlignControl({ value, onChange }: { value: BlockAlign | undefined; onCh
 }
 
 /** The fields that edit one block, by type. */
-export function BlockFields({ block, schema, onChange }: Props) {
+export function BlockFields({ block, schema, kind = 'document', onChange }: Props) {
     switch (block.type) {
+        case 'repeat':
+            return <RepeatFields block={block} schema={schema} kind={kind} onChange={onChange} />
         case 'heading':
         case 'text':
             return (
@@ -83,7 +101,11 @@ export function BlockFields({ block, schema, onChange }: Props) {
                         <AlignControl value={block.align} onChange={align => onChange({ align })} />
                         {block.type === 'text' && (
                             <>
-                                <Switch checked={block.bold ?? false} onChange={bold => onChange({ bold: bold || undefined })} label="Bold" />
+                                <Switch
+                                    checked={block.bold ?? false}
+                                    onChange={bold => onChange({ bold: bold || undefined })}
+                                    label="Bold"
+                                />
                                 <Switch
                                     checked={block.italic ?? false}
                                     onChange={italic => onChange({ italic: italic || undefined })}
@@ -105,10 +127,19 @@ export function BlockFields({ block, schema, onChange }: Props) {
                     />
                     <div className="tp-grid tp-grid--2">
                         <Field label="Width (pt)" hint="72pt is an inch. The height follows.">
-                            <NumberInput min={8} max={900} value={block.width} onChange={width => onChange({ width: width ?? 140 })} aria-label="Image width" />
+                            <NumberInput
+                                min={8}
+                                max={900}
+                                value={block.width}
+                                onChange={width => onChange({ width: width ?? 140 })}
+                                aria-label="Image width"
+                            />
                         </Field>
                         <Field label="Caption">
-                            <TokenField value={block.caption ?? ''} onChange={caption => onChange({ caption: caption || undefined })} />
+                            <TokenField
+                                value={block.caption ?? ''}
+                                onChange={caption => onChange({ caption: caption || undefined })}
+                            />
                         </Field>
                     </div>
                     <AlignControl value={block.align} onChange={align => onChange({ align })} />
@@ -118,14 +149,25 @@ export function BlockFields({ block, schema, onChange }: Props) {
         case 'spacer':
             return (
                 <Field label="Height (pt)">
-                    <NumberInput min={0} max={400} value={block.height} onChange={height => onChange({ height: height ?? 0 })} aria-label="Spacer height" />
+                    <NumberInput
+                        min={0}
+                        max={400}
+                        value={block.height}
+                        onChange={height => onChange({ height: height ?? 0 })}
+                        aria-label="Spacer height"
+                    />
                 </Field>
             )
 
         case 'divider':
             return (
                 <div className="tp-grid tp-grid--2">
-                    <ColorField label="Colour" value={block.color ?? ''} onChange={color => onChange({ color: color || undefined })} allowEmpty />
+                    <ColorField
+                        label="Colour"
+                        value={block.color ?? ''}
+                        onChange={color => onChange({ color: color || undefined })}
+                        allowEmpty
+                    />
                     <Field label="Thickness (pt)">
                         <NumberInput
                             min={0.1}
@@ -141,7 +183,9 @@ export function BlockFields({ block, schema, onChange }: Props) {
 
         case 'columns': {
             const replace = (index: number, changes: Record<string, unknown>) =>
-                onChange({ columns: block.columns.map((column, at) => (at === index ? { ...column, ...changes } : column)) })
+                onChange({
+                    columns: block.columns.map((column, at) => (at === index ? { ...column, ...changes } : column)),
+                })
             return (
                 <div className="tp-stack">
                     {block.columns.map((column, index) => (
@@ -162,14 +206,23 @@ export function BlockFields({ block, schema, onChange }: Props) {
                                 />
                             </div>
                             <Field label="Text">
-                                <TokenField multiline rows={3} value={column.text} onChange={text => replace(index, { text })} />
+                                <TokenField
+                                    multiline
+                                    rows={3}
+                                    value={column.text}
+                                    onChange={text => replace(index, { text })}
+                                />
                             </Field>
                             <AlignControl value={column.align} onChange={align => replace(index, { align })} />
                         </div>
                     ))}
                     {block.columns.length < 4 && (
                         <div>
-                            <Button size="sm" icon="plus" onClick={() => onChange({ columns: [...block.columns, { text: '' }] })}>
+                            <Button
+                                size="sm"
+                                icon="plus"
+                                onClick={() => onChange({ columns: [...block.columns, { text: '' }] })}
+                            >
                                 Column
                             </Button>
                         </div>
@@ -186,8 +239,16 @@ export function BlockFields({ block, schema, onChange }: Props) {
                     <div className="tp-pairs">
                         {block.rows.map((row, index) => (
                             <div key={index} className="tp-pairs__row">
-                                <TokenField value={row.label} onChange={label => replace(index, { label })} aria-label={`Row ${index + 1} label`} />
-                                <TokenField value={row.value} onChange={value => replace(index, { value })} aria-label={`Row ${index + 1} value`} />
+                                <TokenField
+                                    value={row.label}
+                                    onChange={label => replace(index, { label })}
+                                    aria-label={`Row ${index + 1} label`}
+                                />
+                                <TokenField
+                                    value={row.value}
+                                    onChange={value => replace(index, { value })}
+                                    aria-label={`Row ${index + 1} value`}
+                                />
                                 <IconButton
                                     icon="trash"
                                     label={`Remove row ${index + 1}`}
@@ -206,11 +267,20 @@ export function BlockFields({ block, schema, onChange }: Props) {
                                 placeholder="Add a field…"
                                 aria-label="Add a field row"
                                 onChange={field =>
-                                    onChange({ rows: [...block.rows, { label: field.label, value: `{{record.${field.name}}}` }] })
+                                    onChange({
+                                        rows: [
+                                            ...block.rows,
+                                            { label: field.label, value: `{{record.${field.name}}}` },
+                                        ],
+                                    })
                                 }
                             />
                         </div>
-                        <Button size="sm" icon="plus" onClick={() => onChange({ rows: [...block.rows, { label: '', value: '' }] })}>
+                        <Button
+                            size="sm"
+                            icon="plus"
+                            onClick={() => onChange({ rows: [...block.rows, { label: '', value: '' }] })}
+                        >
                             Empty row
                         </Button>
                     </div>
@@ -229,8 +299,16 @@ export function BlockFields({ block, schema, onChange }: Props) {
                     <div className="tp-pairs">
                         {block.items.map((item, index) => (
                             <div key={index} className="tp-pairs__row">
-                                <TokenField value={item.label} onChange={label => replace(index, { label })} aria-label={`Figure ${index + 1} label`} />
-                                <TokenField value={item.value} onChange={value => replace(index, { value })} aria-label={`Figure ${index + 1} value`} />
+                                <TokenField
+                                    value={item.label}
+                                    onChange={label => replace(index, { label })}
+                                    aria-label={`Figure ${index + 1} label`}
+                                />
+                                <TokenField
+                                    value={item.value}
+                                    onChange={value => replace(index, { value })}
+                                    aria-label={`Figure ${index + 1} value`}
+                                />
                                 <IconButton
                                     icon="trash"
                                     label={`Remove figure ${index + 1}`}
@@ -249,25 +327,41 @@ export function BlockFields({ block, schema, onChange }: Props) {
                                 placeholder="Add a field as a figure…"
                                 aria-label="Add a figure"
                                 onChange={field =>
-                                    onChange({ items: [...block.items, { label: field.label, value: `{{record.${field.name}}}` }] })
+                                    onChange({
+                                        items: [
+                                            ...block.items,
+                                            { label: field.label, value: `{{record.${field.name}}}` },
+                                        ],
+                                    })
                                 }
                             />
                         </div>
                     )}
-                    <ColorField label="Accent" value={block.color ?? ''} onChange={color => onChange({ color: color || undefined })} allowEmpty />
+                    <ColorField
+                        label="Accent"
+                        value={block.color ?? ''}
+                        onChange={color => onChange({ color: color || undefined })}
+                        allowEmpty
+                    />
                 </div>
             )
         }
 
         case 'signatures': {
             const replace = (index: number, changes: Record<string, unknown>) =>
-                onChange({ parties: block.parties.map((party, at) => (at === index ? { ...party, ...changes } : party)) })
+                onChange({
+                    parties: block.parties.map((party, at) => (at === index ? { ...party, ...changes } : party)),
+                })
             return (
                 <div className="tp-stack">
                     <div className="tp-pairs">
                         {block.parties.map((party, index) => (
                             <div key={index} className="tp-pairs__row">
-                                <TokenField value={party.label} onChange={label => replace(index, { label })} aria-label={`Party ${index + 1}`} />
+                                <TokenField
+                                    value={party.label}
+                                    onChange={label => replace(index, { label })}
+                                    aria-label={`Party ${index + 1}`}
+                                />
                                 <Input
                                     value={party.caption ?? ''}
                                     placeholder="Caption"
@@ -286,7 +380,11 @@ export function BlockFields({ block, schema, onChange }: Props) {
                     </div>
                     {block.parties.length < 4 && (
                         <div>
-                            <Button size="sm" icon="plus" onClick={() => onChange({ parties: [...block.parties, { label: '' }] })}>
+                            <Button
+                                size="sm"
+                                icon="plus"
+                                onClick={() => onChange({ parties: [...block.parties, { label: '' }] })}
+                            >
                                 Party
                             </Button>
                         </div>
@@ -304,7 +402,10 @@ export function BlockFields({ block, schema, onChange }: Props) {
         case 'code':
             return (
                 <div className="tp-stack">
-                    <Field label="Code" hint="Spaces, tabs and blank lines are kept as written. Tokens are filled in — {{record.script}}.">
+                    <Field
+                        label="Code"
+                        hint="Spaces, tabs and blank lines are kept as written. Tokens are filled in — {{record.script}}."
+                    >
                         <TokenField
                             multiline
                             rows={8}
@@ -315,7 +416,10 @@ export function BlockFields({ block, schema, onChange }: Props) {
                     </Field>
                     <div className="tp-grid tp-grid--3">
                         <Field label="Label" hint="A language or file name.">
-                            <TokenField value={block.title ?? ''} onChange={title => onChange({ title: title || undefined })} />
+                            <TokenField
+                                value={block.title ?? ''}
+                                onChange={title => onChange({ title: title || undefined })}
+                            />
                         </Field>
                         <Field label="Size (pt)">
                             <NumberInput
@@ -347,7 +451,12 @@ export function BlockFields({ block, schema, onChange }: Props) {
                             hint="Empty is light grey."
                             onChange={background => onChange({ background: background || undefined })}
                         />
-                        <ColorField label="Text" allowEmpty value={block.color ?? ''} onChange={color => onChange({ color: color || undefined })} />
+                        <ColorField
+                            label="Text"
+                            allowEmpty
+                            value={block.color ?? ''}
+                            onChange={color => onChange({ color: color || undefined })}
+                        />
                     </div>
                     <div className="tp-row tp-row--wrap" style={{ gap: 'var(--tp-space-4)' }}>
                         <Switch
@@ -362,7 +471,11 @@ export function BlockFields({ block, schema, onChange }: Props) {
                         >
                             Dark theme
                         </Button>
-                        <Button size="sm" variant="ghost" onClick={() => onChange({ background: undefined, color: undefined })}>
+                        <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => onChange({ background: undefined, color: undefined })}
+                        >
                             Light theme
                         </Button>
                     </div>
@@ -376,7 +489,10 @@ export function BlockFields({ block, schema, onChange }: Props) {
                         <Field label="Text" hint="Empty shows the address itself.">
                             <TokenField value={block.text} onChange={text => onChange({ text })} />
                         </Field>
-                        <Field label="Address" hint="https://…, mailto:…, tel:…, or a path like /incident_list.do. {{url.record}} is the record.">
+                        <Field
+                            label="Address"
+                            hint="https://…, mailto:…, tel:…, or a path like /incident_list.do. {{url.record}} is the record."
+                        >
                             <TokenField value={block.url} onChange={url => onChange({ url })} />
                         </Field>
                     </div>
@@ -385,7 +501,11 @@ export function BlockFields({ block, schema, onChange }: Props) {
                         <Button size="sm" variant="ghost" onClick={() => onChange({ url: '{{url.record}}' })}>
                             This record
                         </Button>
-                        <Button size="sm" variant="ghost" onClick={() => onChange({ url: 'mailto:{{record.caller_id.email}}' })}>
+                        <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => onChange({ url: 'mailto:{{record.caller_id.email}}' })}
+                        >
                             Email the caller
                         </Button>
                         <Button size="sm" variant="ghost" onClick={() => onChange({ url: '/{{table.name}}_list.do' })}>
@@ -424,7 +544,11 @@ export function BlockFields({ block, schema, onChange }: Props) {
                     </div>
                     <div className="tp-row tp-row--wrap" style={{ gap: 'var(--tp-space-4)' }}>
                         <AlignControl value={block.align} onChange={align => onChange({ align })} />
-                        <Switch checked={block.bold ?? false} onChange={bold => onChange({ bold: bold || undefined })} label="Bold" />
+                        <Switch
+                            checked={block.bold ?? false}
+                            onChange={bold => onChange({ bold: bold || undefined })}
+                            label="Bold"
+                        />
                     </div>
                 </div>
             )
@@ -442,7 +566,10 @@ export function BlockFields({ block, schema, onChange }: Props) {
                         />
                     </Field>
                     <Field label="Title">
-                        <TokenField value={block.title ?? ''} onChange={title => onChange({ title: title || undefined })} />
+                        <TokenField
+                            value={block.title ?? ''}
+                            onChange={title => onChange({ title: title || undefined })}
+                        />
                     </Field>
                     <Field label="Text">
                         <TokenField multiline rows={3} value={block.text} onChange={text => onChange({ text })} />
@@ -475,7 +602,9 @@ export function BlockFields({ block, schema, onChange }: Props) {
                             ]}
                         />
                     </Field>
-                    <p className="tp-subtle">An item that fills in to several lines — a multi-line field — becomes one item per line.</p>
+                    <p className="tp-subtle">
+                        An item that fills in to several lines — a multi-line field — becomes one item per line.
+                    </p>
                     <div className="tp-stack tp-stack--tight">
                         {block.items.map((item, index) => (
                             <div key={index} className="tp-row">
@@ -483,7 +612,11 @@ export function BlockFields({ block, schema, onChange }: Props) {
                                     {block.style === 'number' ? `${index + 1}.` : block.style === 'check' ? '☐' : '•'}
                                 </span>
                                 <div className="tp-grow">
-                                    <TokenField value={item} onChange={value => replace(index, value)} aria-label={`Item ${index + 1}`} />
+                                    <TokenField
+                                        value={item}
+                                        onChange={value => replace(index, value)}
+                                        aria-label={`Item ${index + 1}`}
+                                    />
                                 </div>
                                 <IconButton
                                     icon="trash"
@@ -544,7 +677,11 @@ function TableFields({
     const setColumn = (index: number, changes: Record<string, unknown>) =>
         onChange({ columns: block.columns.map((column, at) => (at === index ? { ...column, ...changes } : column)) })
     const setCell = (row: number, column: number, value: string) =>
-        onChange({ rows: block.rows.map((cells, at) => (at === row ? cells.map((cell, index) => (index === column ? value : cell)) : cells)) })
+        onChange({
+            rows: block.rows.map((cells, at) =>
+                at === row ? cells.map((cell, index) => (index === column ? value : cell)) : cells
+            ),
+        })
     const addColumn = () =>
         onChange({
             columns: [...block.columns, { header: `Column ${width + 1}`, width: 1 }],
@@ -558,10 +695,17 @@ function TableFields({
 
     return (
         <div className="tp-stack">
-            <div className="tp-table-editor" style={{ gridTemplateColumns: `repeat(${width}, minmax(7rem, 1fr)) auto` }}>
+            <div
+                className="tp-table-editor"
+                style={{ gridTemplateColumns: `repeat(${width}, minmax(7rem, 1fr)) auto` }}
+            >
                 {block.columns.map((column, index) => (
                     <div key={`h${index}`} className="tp-table-editor__head">
-                        <TokenField value={column.header} onChange={header => setColumn(index, { header })} aria-label={`Column ${index + 1} heading`} />
+                        <TokenField
+                            value={column.header}
+                            onChange={header => setColumn(index, { header })}
+                            aria-label={`Column ${index + 1} heading`}
+                        />
                         <div className="tp-row">
                             <NumberInput
                                 min={0.1}
@@ -582,7 +726,13 @@ function TableFields({
                                 ]}
                             />
                             {width > 1 && (
-                                <IconButton icon="x" label={`Remove column ${index + 1}`} size="sm" tone="danger" onClick={() => removeColumn(index)} />
+                                <IconButton
+                                    icon="x"
+                                    label={`Remove column ${index + 1}`}
+                                    size="sm"
+                                    tone="danger"
+                                    onClick={() => removeColumn(index)}
+                                />
                             )}
                         </div>
                     </div>
@@ -610,7 +760,11 @@ function TableFields({
             </div>
             <div className="tp-row tp-row--wrap">
                 {block.rows.length < MAX_TABLE_ROWS && (
-                    <Button size="sm" icon="plus" onClick={() => onChange({ rows: [...block.rows, block.columns.map(() => '')] })}>
+                    <Button
+                        size="sm"
+                        icon="plus"
+                        onClick={() => onChange({ rows: [...block.rows, block.columns.map(() => '')] })}
+                    >
                         Row
                     </Button>
                 )}
@@ -621,8 +775,18 @@ function TableFields({
                 )}
             </div>
             <div className="tp-grid tp-grid--3">
-                <ColorField label="Header fill" allowEmpty value={block.headerFill ?? ''} onChange={headerFill => onChange({ headerFill: headerFill || undefined })} />
-                <ColorField label="Banding" allowEmpty value={block.zebra ?? ''} onChange={zebra => onChange({ zebra: zebra || undefined })} />
+                <ColorField
+                    label="Header fill"
+                    allowEmpty
+                    value={block.headerFill ?? ''}
+                    onChange={headerFill => onChange({ headerFill: headerFill || undefined })}
+                />
+                <ColorField
+                    label="Banding"
+                    allowEmpty
+                    value={block.zebra ?? ''}
+                    onChange={zebra => onChange({ zebra: zebra || undefined })}
+                />
                 <Field label="Size (pt)">
                     <NumberInput
                         min={5}
@@ -646,7 +810,9 @@ export function summarise(block: PdfBlock): string {
         case 'text':
             return block.text.replace(/\s+/g, ' ').slice(0, 80) || 'empty'
         case 'image':
-            return block.source ? `${block.width}pt wide${block.caption ? ` · ${block.caption}` : ''}` : 'no image chosen'
+            return block.source
+                ? `${block.width}pt wide${block.caption ? ` · ${block.caption}` : ''}`
+                : 'no image chosen'
         case 'spacer':
             return `${block.height}pt`
         case 'divider':
@@ -654,19 +820,38 @@ export function summarise(block: PdfBlock): string {
         case 'columns':
             return block.columns.map(column => column.heading || 'column').join(' · ')
         case 'fields':
-            return block.rows.map(row => row.label).filter(Boolean).join(' · ') || 'no rows'
+            return (
+                block.rows
+                    .map(row => row.label)
+                    .filter(Boolean)
+                    .join(' · ') || 'no rows'
+            )
         case 'relatedList':
             return block.table ? `${block.table}.${block.field} · ${block.columns.length} columns` : 'not set up yet'
         case 'stats':
-            return block.items.map(item => item.label).filter(Boolean).join(' · ') || 'no figures'
+            return (
+                block.items
+                    .map(item => item.label)
+                    .filter(Boolean)
+                    .join(' · ') || 'no figures'
+            )
         case 'signatures':
             return block.parties.map(party => party.label || 'party').join(' · ')
         case 'reference':
             return block.field ? `${block.field} → ${block.table} · ${block.rows.length} fields` : 'not set up yet'
         case 'code':
-            return block.title || block.code.split('\n').find(line => line.trim())?.trim().slice(0, 80) || 'empty'
+            return (
+                block.title ||
+                block.code
+                    .split('\n')
+                    .find(line => line.trim())
+                    ?.trim()
+                    .slice(0, 80) ||
+                'empty'
+            )
         case 'chart':
-            if (block.template !== undefined) return block.template ? 'a chart template' : 'chart template not chosen yet'
+            if (block.template !== undefined)
+                return block.template ? 'a chart template' : 'chart template not chosen yet'
             return `${block.chart} · ${
                 block.related
                     ? block.related.table
@@ -682,6 +867,10 @@ export function summarise(block: PdfBlock): string {
             return `${block.items.length} ${block.style === 'number' ? 'numbered' : block.style === 'check' ? 'checkbox' : 'bulleted'} item${block.items.length === 1 ? '' : 's'}`
         case 'table':
             return `${block.columns.length} × ${block.rows.length}`
+        case 'repeat':
+            return block.table
+                ? `for each ${block.table}.${block.field} · ${block.blocks.length} block${block.blocks.length === 1 ? '' : 's'}`
+                : 'not set up yet'
         case 'pageBreak':
             return 'new page'
     }

@@ -221,7 +221,11 @@ export function Ribbon({ editor }: { editor: SlideEditor }) {
             <div className="tp-ribbon__group" aria-label="Clipboard">
                 <ToolButton
                     icon="brush"
-                    label={editor.painter ? 'Format painter: click an element to paint it (Esc to stop)' : 'Format painter (Ctrl+Shift+C)'}
+                    label={
+                        editor.painter
+                            ? 'Format painter: click an element to paint it (Esc to stop)'
+                            : 'Format painter (Ctrl+Shift+C)'
+                    }
                     disabled={!editor.painter && editor.selection.length !== 1}
                     active={Boolean(editor.painter)}
                     onClick={editor.togglePainter}
@@ -229,8 +233,18 @@ export function Ribbon({ editor }: { editor: SlideEditor }) {
             </div>
 
             <div className="tp-ribbon__group" aria-label="Arrange">
-                <ToolButton icon="bringForward" label="Bring forward" disabled={!some} onClick={() => editor.arrange('forward')} />
-                <ToolButton icon="sendBackward" label="Send backward" disabled={!some} onClick={() => editor.arrange('backward')} />
+                <ToolButton
+                    icon="bringForward"
+                    label="Bring forward"
+                    disabled={!some}
+                    onClick={() => editor.arrange('forward')}
+                />
+                <ToolButton
+                    icon="sendBackward"
+                    label="Send backward"
+                    disabled={!some}
+                    onClick={() => editor.arrange('backward')}
+                />
                 <ToolButton icon="copy" label="Duplicate (Ctrl+D)" disabled={!some} onClick={editor.duplicate} />
                 <ToolButton icon="trash" label="Delete (Del)" disabled={!some} onClick={editor.remove} />
             </div>

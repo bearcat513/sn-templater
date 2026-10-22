@@ -24,6 +24,9 @@
  * and ¥ symbols the currency formatter produces.
  */
 
+import { unicodeFont } from "./fonts";
+import type { TrueTypeFont } from "./fonts/truetype";
+
 export type FontFamily = "helvetica" | "times" | "courier";
 
 export const FONT_FAMILIES: FontFamily[] = ["helvetica", "times", "courier"];
@@ -301,10 +304,79 @@ function glyphWidth(byte: number, family: FontFamily, style: FontStyle): number 
  * the hottest function in the writer — hence the plain loop.
  */
 export function measureText(text: string, family: FontFamily, size: number, style: FontStyle = {}): number {
-  const bytes = encodeWinAnsi(text);
   let total = 0;
-  for (const byte of bytes) total += glyphWidth(byte, family, style);
+  for (const run of textRuns(text, style)) {
+    if (run.font) {
+      for (const char of run.text) total += run.font.advance(run.font.glyphFor(char.codePointAt(0)!));
+    } else {
+      for (const byte of encodeWinAnsi(run.text)) total += glyphWidth(byte, family, style);
+    }
+  }
   return (total * size) / 1000;
+}
+
+/* ---------------------------- beyond WinAnsi ----------------------------- */
+
+/** Whether a character prints as itself, or as its spelled-out stand-in, in the standard fonts. */
+function isWinAnsi(character: string): boolean {
+  if (TRANSLITERATIONS[character] !== undefined) return true;
+  const code = character.codePointAt(0)!;
+  return (
+    code === 0x0a ||
+    code === 0x0d ||
+    (code >= 0x20 && code <= 0x7e) ||
+    (code >= 0xa0 && code <= 0xff) ||
+    code in WIN_ANSI_SPECIALS
+  );
+}
+
+/**
+ * Whether any text in these values needs the embedded fonts: a character the
+ * standard fonts cannot set. Takes anything — a template, a render job — and
+ * looks at every string in it, so a caller can ask before a render whether to
+ * wait for the fonts.
+ */
+export function needsUnicode(...values: unknown[]): boolean {
+  const seen = new Set<unknown>();
+  const visit = (value: unknown): boolean => {
+    if (typeof value === "string") {
+      // Picture data is base64, which is ASCII; skip the scan of a long run of it.
+      if (value.startsWith("data:")) return false;
+      if (!/[\u0100-\u{10ffff}]/u.test(value)) return false;
+      for (const character of value) if (!isWinAnsi(character)) return true;
+      return false;
+    }
+    if (!value || typeof value !== "object" || seen.has(value)) return false;
+    seen.add(value);
+    return (Array.isArray(value) ? value : Object.values(value)).some(visit);
+  };
+  return values.some(visit);
+}
+
+/**
+ * A run of text set in one font: the standard face (`font` null), or the
+ * embedded one for the characters the standard face cannot set.
+ */
+export type TextRun = { text: string; font: TrueTypeFont | null };
+
+/**
+ * Text split into runs by the font that sets each character. Without the
+ * embedded fonts loaded, the whole text is one standard run, and what WinAnsi
+ * cannot hold prints as `?`. With them, a character the standard face cannot
+ * set — and the embedded one can — is set in the embedded face of the same
+ * weight and slant.
+ */
+export function textRuns(text: string, style: FontStyle = {}): TextRun[] {
+  const font = unicodeFont(style);
+  if (!font || !/[\u0100-\u{10ffff}]/u.test(text)) return [{ text, font: null }];
+  const runs: TextRun[] = [];
+  for (const character of text) {
+    const embedded = !isWinAnsi(character) && font.has(character.codePointAt(0)!) ? font : null;
+    const last = runs[runs.length - 1];
+    if (last && last.font === embedded) last.text += character;
+    else runs.push({ text: character, font: embedded });
+  }
+  return runs;
 }
 
 /**

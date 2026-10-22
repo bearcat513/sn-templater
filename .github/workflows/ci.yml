@@ -1,0 +1,40 @@
+name: CI
+
+on:
+    push:
+        branches: [main]
+    pull_request:
+
+jobs:
+    check:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+
+            # Node runs the SDK and the starter generator (which needs 22.18+ for TypeScript).
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 22
+
+            - uses: oven-sh/setup-bun@v2
+              with:
+                  bun-version: 1.3.14
+
+            - name: Install
+              run: bun install --frozen-lockfile
+
+            - name: Format
+              run: npm run format:check
+
+            - name: Lint
+              run: npm run lint
+
+            - name: Typecheck
+              run: npm run typecheck
+
+            - name: Test
+              run: npm test
+
+            # Fails when a change adds a Fluent record without committing the keys.ts it generated.
+            - name: Build
+              run: npm run starters && npm run fonts && npx now-sdk build --frozenKeys

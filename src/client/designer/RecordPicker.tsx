@@ -21,7 +21,9 @@ export function RecordPicker({
     'aria-label'?: string
 }) {
     const hasNumber = schema.fields.some(field => field.name === 'number')
-    const detailField = schema.fields.some(field => field.name === 'short_description') ? 'short_description' : undefined
+    const detailField = schema.fields.some(field => field.name === 'short_description')
+        ? 'short_description'
+        : undefined
     const [label, setLabel] = useState('')
 
     useEffect(() => {

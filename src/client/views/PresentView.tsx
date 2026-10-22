@@ -1,3 +1,5 @@
+import { openTemplate } from '../data/templates'
+import { openPictures } from '../data/pictures'
 import React, { useEffect, useRef, useState } from 'react'
 import { loadCharts } from '../data/charts'
 import { assemble, canChangePresentation, loadDeck, loadSections, recordLink, sourceOf } from '../data/deck'
@@ -8,12 +10,12 @@ import { presentationChartIds, readPresentation } from '../engine/presentation'
 import { renderPdfDocument, renderPdfSlides, type RenderJob } from '../engine/render'
 import type { PdfTemplate } from '../engine/template'
 import { documentFileName } from '../engine/tokens'
-import { readTemplate } from '../engine/validate'
+import { prepareFonts } from '../hooks/useFonts'
 import { useAsync } from '../hooks/useAsync'
 import { downloadBytes } from '../hooks/usePdf'
 import { setPageTitle, type Navigate } from '../hooks/useRoute'
 import { SchemaService } from '../services/schema'
-import { PresentationService, type PresentationRecord } from '../services/presentations'
+import { PRESENTATION_TABLE, PresentationService, type PresentationRecord } from '../services/presentations'
 import { TemplateService } from '../services/templates'
 import { arrange, shown, type Slide } from '../slides/paginate'
 import { Presenter } from '../slides/Presenter'
@@ -66,7 +68,12 @@ export function PresentView({ params, navigate }: { params: URLSearchParams; nav
         seeded.current = full.data.sysId
         setTitle(full.data.name)
         if (fromQuery !== null) return
-        setSelection(current => ({ ...current, query: full.data!.query, orderBy: full.data!.orderBy, limit: full.data!.limit }))
+        setSelection(current => ({
+            ...current,
+            query: full.data!.query,
+            orderBy: full.data!.orderBy,
+            limit: full.data!.limit,
+        }))
     }, [full.data, fromQuery])
 
     const [deck, setDeck] = useState<Deck | null>(null)
@@ -84,7 +91,7 @@ export function PresentView({ params, navigate }: { params: URLSearchParams; nav
         setError('')
         try {
             const presentation = await PresentationService.get(sysId)
-            const body = readPresentation(presentation.body ?? '')
+            const body = await openPictures(readPresentation(presentation.body ?? ''), PRESENTATION_TABLE, sysId)
             const source = sourceOf(presentation)
             // A presentation built from nothing has no deck of its own: its custom slides and the templates placed in it.
             const [main, sections, charts] = await Promise.all([
@@ -94,8 +101,21 @@ export function PresentView({ params, navigate }: { params: URLSearchParams; nav
             ])
             const failed = Object.values(sections).find(section => section.error)
             if (failed) log.warn('present', `A section of “${presentation.name}” could not be loaded: ${failed.error}`)
-            const { frame, job, generated } = assemble(main, source.title, session, body.sections ?? [], sections, charts)
-            setDeck({ template: frame, job, title: presentation.name, slides: shown(arrange(generated, job, body)), presentation })
+            const { frame, job, generated } = assemble(
+                main,
+                source.title,
+                session,
+                body.sections ?? [],
+                sections,
+                charts
+            )
+            setDeck({
+                template: frame,
+                job,
+                title: presentation.name,
+                slides: shown(arrange(generated, job, body)),
+                presentation,
+            })
             setPageTitle(presentation.name)
         } catch (failure) {
             const { message, data } = describeError(failure)
@@ -110,6 +130,7 @@ export function PresentView({ params, navigate }: { params: URLSearchParams; nav
     useEffect(() => {
         if (fromLink) void presentSaved(fromLink)
         // Once, for the address the view was opened at.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [fromLink])
 
     const removeSaved = async (presentation: PresentationRecord) => {
@@ -141,7 +162,7 @@ export function PresentView({ params, navigate }: { params: URLSearchParams; nav
         setError('')
         setProgress('Reading records…')
         try {
-            const read = readTemplate(full.data.body ?? '', full.data.kind, schema.data.fields)
+            const read = await openTemplate(full.data, schema.data.fields)
             if (!read.ok) throw new Error(`“${full.data.name}” could not be read: ${read.error}`)
             const deckTitle = title.trim() || full.data.name
             const { job } = await loadRecords({
@@ -149,7 +170,12 @@ export function PresentView({ params, navigate }: { params: URLSearchParams; nav
                 schema: schema.data,
                 session,
                 title: deckTitle,
-                selection: { kind: 'query', query: selection.query, orderBy: selection.orderBy, limit: selection.limit },
+                selection: {
+                    kind: 'query',
+                    query: selection.query,
+                    orderBy: selection.orderBy,
+                    limit: selection.limit,
+                },
                 onProgress: (done, total) => total && setProgress(`Reading related lists… ${done} of ${total}`),
             })
             setDeck({ template: read.value, job, title: deckTitle })
@@ -164,9 +190,10 @@ export function PresentView({ params, navigate }: { params: URLSearchParams; nav
         }
     }
 
-    const exportPdf = () => {
+    const exportPdf = async () => {
         if (!deck) return
         try {
+            await prepareFonts(deck.template, deck.job)
             const drawn = log.time('render', `Deck PDF drawn for “${deck.title}”`)
             const result = deck.slides
                 ? renderPdfSlides(deck.template, deck.job, deck.slides)
@@ -216,9 +243,15 @@ export function PresentView({ params, navigate }: { params: URLSearchParams; nav
             <header className="tp-page__header">
                 <div>
                     <h1>Present a deck</h1>
-                    <p className="tp-muted">One slide per record. Arrow keys to move, F for full screen, G for an overview.</p>
+                    <p className="tp-muted">
+                        One slide per record. Arrow keys to move, F for full screen, G for an overview.
+                    </p>
                 </div>
-                <Button icon="plus" onClick={() => navigate('build')} title="Start from an empty deck and place templates’ slides wherever you want them">
+                <Button
+                    icon="plus"
+                    onClick={() => navigate('build')}
+                    title="Start from an empty deck and place templates’ slides wherever you want them"
+                >
                     New blank presentation
                 </Button>
             </header>
@@ -241,7 +274,8 @@ export function PresentView({ params, navigate }: { params: URLSearchParams; nav
                                 <span className="tp-saved__text">
                                     <span className="tp-saved__name tp-truncate">{presentation.name}</span>
                                     <span className="tp-subtle tp-truncate">
-                                        {presentation.templateName || 'Blank deck'} · {presentation.updatedOn} · {presentation.createdBy}
+                                        {presentation.templateName || 'Blank deck'} · {presentation.updatedOn} ·{' '}
+                                        {presentation.createdBy}
                                     </span>
                                 </span>
                                 <Button
@@ -253,7 +287,12 @@ export function PresentView({ params, navigate }: { params: URLSearchParams; nav
                                 >
                                     Present
                                 </Button>
-                                <Button size="sm" variant="ghost" icon="layers" onClick={() => navigate('build', { id: presentation.sysId })}>
+                                <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    icon="layers"
+                                    onClick={() => navigate('build', { id: presentation.sysId })}
+                                >
                                     Edit
                                 </Button>
                                 <Menu
@@ -264,7 +303,9 @@ export function PresentView({ params, navigate }: { params: URLSearchParams; nav
                                             icon: 'copy',
                                             onSelect: () => {
                                                 const link = `${window.location.origin}${window.location.pathname}?view=present&presentation=${presentation.sysId}`
-                                                void navigator.clipboard?.writeText(link).then(() => toast('Link copied.', 'info'))
+                                                void navigator.clipboard
+                                                    ?.writeText(link)
+                                                    .then(() => toast('Link copied.', 'info'))
                                             },
                                         },
                                         ...(canChangePresentation(presentation, session)
@@ -307,7 +348,11 @@ export function PresentView({ params, navigate }: { params: URLSearchParams; nav
                         }
                     />
                 )}
-                <Switch checked={showAll} onChange={setShowAll} label="Show PDF templates too — any template can be presented" />
+                <Switch
+                    checked={showAll}
+                    onChange={setShowAll}
+                    label="Show PDF templates too — any template can be presented"
+                />
                 <Notice kind="critical" lines={[templates.error, full.error].filter(Boolean)} />
             </Step>
 
@@ -317,7 +362,12 @@ export function PresentView({ params, navigate }: { params: URLSearchParams; nav
                         <Field label="Deck title" hint="Shown on the title slide as {{deck.title}}.">
                             <Input value={title} onChange={event => setTitle(event.target.value)} />
                         </Field>
-                        <SelectionForm schema={schema.data} selection={selection} onChange={setSelection} allowOne={false} />
+                        <SelectionForm
+                            schema={schema.data}
+                            selection={selection}
+                            onChange={setSelection}
+                            allowOne={false}
+                        />
                     </div>
                 ) : schema.loading || full.loading ? (
                     <p className="tp-row tp-subtle">
@@ -339,10 +389,14 @@ export function PresentView({ params, navigate }: { params: URLSearchParams; nav
                 {progress && <span className="tp-subtle">{progress}</span>}
             </div>
             <p className="tp-subtle">
-                Build slides opens the slide builder: put the slides in your own order, hide some, add slides of your own
-                anywhere, and save it all as a presentation.
+                Build slides opens the slide builder: put the slides in your own order, hide some, add slides of your
+                own anywhere, and save it all as a presentation.
             </p>
-            <Notice kind="critical" title={error ? 'The deck could not be loaded' : undefined} lines={error ? [error] : []} />
+            <Notice
+                kind="critical"
+                title={error ? 'The deck could not be loaded' : undefined}
+                lines={error ? [error] : []}
+            />
             <ConfirmModal
                 open={deleting !== null}
                 title="Delete this presentation?"

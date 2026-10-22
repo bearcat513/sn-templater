@@ -282,7 +282,11 @@ export function LetterheadSection({ template, onChange, open, onToggle }: Sectio
                 />
             </Field>
             <div className="tp-row tp-row--wrap" style={{ gap: 'var(--tp-space-5)' }}>
-                <Switch checked={header.rule ?? false} onChange={rule => patch({ rule: rule || undefined })} label="Rule under it" />
+                <Switch
+                    checked={header.rule ?? false}
+                    onChange={rule => patch({ rule: rule || undefined })}
+                    label="Rule under it"
+                />
                 <Switch
                     checked={header.firstPageOnly ?? false}
                     onChange={first => patch({ firstPageOnly: first || undefined })}
@@ -304,8 +308,16 @@ export function WatermarkSection({ template, onChange, open, onToggle }: Section
 
     return (
         <Collapsible title="Watermark" summary={template.watermark?.text || 'none'} open={open} onToggle={onToggle}>
-            <Field label="Text" hint="Stamped under every page. Empty removes it. {{record.state}} stamps what the record is.">
-                <TokenField value={watermark.text} onChange={text => patch({ text })} placeholder="DRAFT" maxLength={60} />
+            <Field
+                label="Text"
+                hint="Stamped under every page. Empty removes it. {{record.state}} stamps what the record is."
+            >
+                <TokenField
+                    value={watermark.text}
+                    onChange={text => patch({ text })}
+                    placeholder="DRAFT"
+                    maxLength={60}
+                />
             </Field>
             <div className="tp-grid tp-grid--4">
                 <ColorField
@@ -315,7 +327,13 @@ export function WatermarkSection({ template, onChange, open, onToggle }: Section
                     allowEmpty
                 />
                 <Field label="Size (pt)">
-                    <NumberInput min={8} max={400} value={watermark.size ?? 84} onChange={size => patch({ size })} aria-label="Watermark size" />
+                    <NumberInput
+                        min={8}
+                        max={400}
+                        value={watermark.size ?? 84}
+                        onChange={size => patch({ size })}
+                        aria-label="Watermark size"
+                    />
                 </Field>
                 <Field label="Opacity">
                     <NumberInput
@@ -328,7 +346,14 @@ export function WatermarkSection({ template, onChange, open, onToggle }: Section
                     />
                 </Field>
                 <Field label="Angle (°)">
-                    <NumberInput min={-90} max={90} step={5} value={watermark.angle ?? 45} onChange={angle => patch({ angle })} aria-label="Watermark angle" />
+                    <NumberInput
+                        min={-90}
+                        max={90}
+                        step={5}
+                        value={watermark.angle ?? 45}
+                        onChange={angle => patch({ angle })}
+                        aria-label="Watermark angle"
+                    />
                 </Field>
             </div>
             <Switch
@@ -344,16 +369,23 @@ export function WatermarkSection({ template, onChange, open, onToggle }: Section
 
 export function FooterSection({ template, onChange, open, onToggle }: SectionProps) {
     const footer = template.footer
-    const patch = (changes: Partial<PdfTemplate['footer']>) => onChange({ ...template, footer: { ...footer, ...changes } })
+    const patch = (changes: Partial<PdfTemplate['footer']>) =>
+        onChange({ ...template, footer: { ...footer, ...changes } })
     return (
         <Collapsible
             title="Footer"
-            summary={[footer.text || '', footer.showPageNumbers ? 'page numbers' : ''].filter(Boolean).join(' · ') || 'none'}
+            summary={
+                [footer.text || '', footer.showPageNumbers ? 'page numbers' : ''].filter(Boolean).join(' · ') || 'none'
+            }
             open={open}
             onToggle={onToggle}
         >
             <Field label="Text" hint="In the bottom margin of every page. Tokens work here.">
-                <TokenField value={footer.text} onChange={text => patch({ text })} placeholder="{{record.number}} · {{now.date}}" />
+                <TokenField
+                    value={footer.text}
+                    onChange={text => patch({ text })}
+                    placeholder="{{record.number}} · {{now.date}}"
+                />
             </Field>
             <Switch
                 checked={footer.showPageNumbers}

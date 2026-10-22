@@ -42,17 +42,22 @@
  *
  * ## What is not
  *
- * No embedded fonts and no forms. Each of those is a real feature with a real
- * cost, and neither is needed to put a record in front of a reader. The
- * omissions are deliberate rather than pending.
+ * No forms, and no embedded fonts *unless the text needs one*: text the
+ * standard 14 fonts can set is set in them, and only characters they cannot
+ * — Greek, Cyrillic, most of Central Europe — are set in an embedded subset
+ * of Noto Sans (see ./fonts/), so a document in plain Latin stays a few
+ * kilobytes.
  */
 import type { EmbeddableImage } from "./image";
 import { asciiUrl } from "./links";
+import type { TrueTypeFont } from "./fonts/truetype";
 import {
   baseFontName,
   encodeWinAnsi,
   fontKey,
   measureText,
+  needsUnicode,
+  textRuns,
   truncateToWidth,
   wrapText,
   type FontFamily,
@@ -215,14 +220,35 @@ const ascii = (text: string): number[] => {
   return bytes;
 };
 
-/** `(…)` string literal: the three characters PDF treats specially. */
+/**
+ * `(…)` string literal: the three characters PDF treats specially. Text that
+ * WinAnsi cannot hold — a title in Greek — is written as UTF-16 instead,
+ * which is what a reader expects of a text string with a byte-order mark.
+ */
 function pdfString(text: string): number[] {
+  if (needsUnicode(text)) {
+    const bytes: number[] = [...ascii("<FEFF")];
+    for (let i = 0; i < text.length; i++) bytes.push(...ascii(text.charCodeAt(i).toString(16).padStart(4, "0")));
+    bytes.push(0x3e); // >
+    return bytes;
+  }
   const bytes: number[] = [0x28]; // (
   for (const byte of encodeWinAnsi(text)) {
     if (byte === 0x28 || byte === 0x29 || byte === 0x5c) bytes.push(0x5c); // \
     bytes.push(byte);
   }
   bytes.push(0x29); // )
+  return bytes;
+}
+
+/** The bytes of a `(…)` literal in WinAnsi, for a run of the standard fonts. */
+function winAnsiString(text: string): number[] {
+  const bytes: number[] = [0x28];
+  for (const byte of encodeWinAnsi(text)) {
+    if (byte === 0x28 || byte === 0x29 || byte === 0x5c) bytes.push(0x5c);
+    bytes.push(byte);
+  }
+  bytes.push(0x29);
   return bytes;
 }
 
@@ -285,6 +311,13 @@ export class PdfDocument {
    * "helvetica" comes out italic because it contains an "i".
    */
   private readonly faces = new Map<string, { family: FontFamily; style: FontStyle }>();
+
+  /**
+   * Every embedded font drawn with: its resource name, the glyphs used —
+   * which is what goes into its subset — and the text each glyph stands for,
+   * so the file can be searched and copied from.
+   */
+  private readonly embedded = new Map<TrueTypeFont, { key: string; glyphs: Set<number>; text: Map<number, string> }>();
 
   /**
    * Every image drawn, and the resource name it was given.
@@ -450,7 +483,6 @@ export class PdfDocument {
     const size = style.size ?? this.fontSize;
     const fontStyle: FontStyle = { bold: style.bold, italic: style.italic };
     const key = fontKey(family, fontStyle);
-    this.page.fonts.add(key);
     if (!this.faces.has(key)) this.faces.set(key, { family, style: fontStyle });
 
     // The baseline sits below the top of the line box; 0.8em is the usual
@@ -458,16 +490,45 @@ export class PdfDocument {
     // what makes a row of text look vertically centred in its band.
     const baseline = this.toPdfY(y + size * 0.8);
 
-    const bytes: number[] = [];
     this.op("BT");
-    this.op(`/${key} ${round(size)} Tf`);
     this.op(colorOp(style.color ?? this.color));
     this.op(`1 0 0 1 ${round(x)} ${round(baseline)} Tm`);
-    // The string is bytes, so it is pushed through a marker the serializer
-    // replaces — see `serializeOperators`.
-    for (const byte of pdfString(text)) bytes.push(byte);
-    this.op(` ${bytes.join(",")}  Tj`);
+    this.showText(text, key, fontStyle, size);
     this.op("ET");
+  }
+
+  /**
+   * Sets a line of text at the current text position, run by run: the
+   * standard face for what it can set, the embedded one for the rest. Each
+   * run's `Tj` moves the position on by its own width, so the runs follow on
+   * from each other without being placed one by one.
+   */
+  private showText(text: string, key: string, style: FontStyle, size: number): void {
+    for (const run of textRuns(text, style)) {
+      if (!run.font) {
+        this.page.fonts.add(key);
+        this.op(`/${key} ${round(size)} Tf`);
+        // The string is bytes, so it is pushed through a marker the serializer
+        // replaces — see `serializeOperators`.
+        this.op(`\0${winAnsiString(run.text).join(",")}\0 Tj`);
+        continue;
+      }
+      let face = this.embedded.get(run.font);
+      if (!face) {
+        face = { key: `U${this.embedded.size + 1}`, glyphs: new Set(), text: new Map() };
+        this.embedded.set(run.font, face);
+      }
+      this.page.fonts.add(face.key);
+      let hex = "";
+      for (const character of run.text) {
+        const glyph = run.font.glyphFor(character.codePointAt(0)!);
+        face.glyphs.add(glyph);
+        if (!face.text.has(glyph)) face.text.set(glyph, character);
+        hex += glyph.toString(16).padStart(4, "0");
+      }
+      this.op(`/${face.key} ${round(size)} Tf`);
+      this.op(`<${hex}> Tj`);
+    }
   }
 
   /**
@@ -492,7 +553,6 @@ export class PdfDocument {
     const size = Math.max(8, Math.min(options.size ?? 84, 400));
     const style: FontStyle = { bold: true };
     const key = fontKey(family, style);
-    this.page.fonts.add(key);
     if (!this.faces.has(key)) this.faces.set(key, { family, style });
 
     const state = this.alphaName(options.opacity ?? 0.08);
@@ -514,14 +574,12 @@ export class PdfDocument {
     const x = this.width / 2 - cos * back + sin * drop;
     const y = this.height / 2 - sin * back - cos * drop;
 
-    const bytes = pdfString(text);
     this.op("q");
     this.op(`/${state} gs`);
     this.op("BT");
-    this.op(`/${key} ${round(size)} Tf`);
     this.op(colorOp(options.color ?? "#111111"));
     this.op(`${round(cos)} ${round(sin)} ${round(-sin)} ${round(cos)} ${round(x)} ${round(y)} Tm`);
-    this.op(` ${bytes.join(",")}  Tj`);
+    this.showText(text, key, style, size);
     this.op("ET");
     this.op("Q");
   }
@@ -818,7 +876,10 @@ export class PdfDocument {
 
       this.drawTextAt(drawn, lineX, this.cursor, style);
       if ((style.underline || style.link) && drawn) {
-        const measured = measureText(drawn, style.family ?? this.family, size, { bold: style.bold, italic: style.italic });
+        const measured = measureText(drawn, style.family ?? this.family, size, {
+          bold: style.bold,
+          italic: style.italic,
+        });
         if (style.underline) {
           this.drawRule(this.cursor + size * 0.95, {
             color: style.color ?? this.color,
@@ -918,8 +979,12 @@ export class PdfDocument {
         ? Math.max(
             ...row.map(cell =>
               cell.detail
-                ? wrapText(cell.detail, (widths[row.indexOf(cell)] ?? this.contentWidth) - padding * 2, this.family, detailSize)
-                    .length
+                ? wrapText(
+                    cell.detail,
+                    (widths[row.indexOf(cell)] ?? this.contentWidth) - padding * 2,
+                    this.family,
+                    detailSize,
+                  ).length
                 : 0,
             ),
           )
@@ -1057,6 +1122,80 @@ export class PdfDocument {
     return bytes;
   }
 
+  /**
+   * Writes one embedded font as PDF objects — a Type 0 font over a CID font
+   * whose glyph numbers are the TrueType font's own — and returns the Type 0
+   * font's id. The content stream addresses glyphs by number, two bytes each
+   * (`/Identity-H`); the widths are given per glyph; and a ToUnicode map says
+   * which character each glyph is, so the text can be searched and copied.
+   */
+  private embedFont(
+    font: TrueTypeFont,
+    face: { glyphs: Set<number>; text: Map<number, string> },
+    add: (bytes: number[]) => number,
+  ): number {
+    const glyphs = [...face.glyphs].sort((a, b) => a - b);
+    // A subset is named with a six-letter tag of its own, as PDF asks.
+    let hash = 0;
+    for (const glyph of glyphs) hash = (hash * 31 + glyph) >>> 0;
+    const tag = Array.from({ length: 6 }, (_, index) => String.fromCharCode(65 + ((hash >>> (index * 5)) % 26))).join(
+      "",
+    );
+    const name = `${tag}+${font.postScriptName}`;
+
+    const file = font.subset(glyphs);
+    const fileId = add([
+      ...ascii(`<< /Length ${file.length} /Length1 ${file.length} >>\nstream\n`),
+      ...file,
+      ...ascii("\nendstream"),
+    ]);
+
+    const [x0, y0, x1, y1] = font.bbox.map(value => font.scale(value));
+    const flags = 32 | (font.italicAngle ? 64 : 0); // non-symbolic, and italic when slanted
+    const descriptorId = add(
+      ascii(
+        `<< /Type /FontDescriptor /FontName /${name} /Flags ${flags} /FontBBox [${x0} ${y0} ${x1} ${y1}] ` +
+          `/ItalicAngle ${round(font.italicAngle)} /Ascent ${font.scale(font.ascent)} /Descent ${font.scale(font.descent)} ` +
+          `/CapHeight ${font.scale(font.capHeight)} /StemV 80 /FontFile2 ${fileId} 0 R >>`,
+      ),
+    );
+
+    const widths = glyphs.map(glyph => `${glyph} [${Math.round(font.advance(glyph))}]`).join(" ");
+    const cidFontId = add(
+      ascii(
+        `<< /Type /Font /Subtype /CIDFontType2 /BaseFont /${name} ` +
+          "/CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> " +
+          `/FontDescriptor ${descriptorId} 0 R /DW 1000 /W [${widths}] /CIDToGIDMap /Identity >>`,
+      ),
+    );
+
+    const utf16 = (text: string) =>
+      Array.from({ length: text.length }, (_, index) => text.charCodeAt(index).toString(16).padStart(4, "0")).join("");
+    const entries = glyphs
+      .filter(glyph => face.text.has(glyph))
+      .map(glyph => `<${glyph.toString(16).padStart(4, "0")}> <${utf16(face.text.get(glyph)!)}>`);
+    const chunks: string[] = [];
+    // A bfchar section holds at most a hundred entries.
+    for (let at = 0; at < entries.length; at += 100) {
+      const chunk = entries.slice(at, at + 100);
+      chunks.push(`${chunk.length} beginbfchar\n${chunk.join("\n")}\nendbfchar`);
+    }
+    const cmap =
+      "/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n" +
+      "/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n" +
+      "/CMapName /Adobe-Identity-UCS def\n/CMapType 2 def\n" +
+      "1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n" +
+      `${chunks.join("\n")}\nendcmap\nCMapName currentdict /CMap defineresource pop\nend\nend`;
+    const toUnicodeId = add([...ascii(`<< /Length ${cmap.length} >>\nstream\n${cmap}\nendstream`)]);
+
+    return add(
+      ascii(
+        `<< /Type /Font /Subtype /Type0 /BaseFont /${name} /Encoding /Identity-H ` +
+          `/DescendantFonts [${cidFontId} 0 R] /ToUnicode ${toUnicodeId} 0 R >>`,
+      ),
+    );
+  }
+
   /** The finished file. */
   toBytes(): Uint8Array {
     this.runOverlays();
@@ -1091,6 +1230,10 @@ export class PdfDocument {
         ),
       );
     }
+
+    /* --- each embedded font: a subset, its metrics, and what its glyphs say --- */
+
+    for (const [font, face] of this.embedded) fontIds.set(face.key, this.embedFont(font, face, add));
 
     /* --- one XObject per distinct picture, however many pages use it --- */
 
@@ -1139,7 +1282,11 @@ export class PdfDocument {
 
     for (const page of this.pages) {
       const content = this.serializeOperators(page.operators);
-      const contentId = add([...ascii(`<< /Length ${content.length} >>\nstream\n`), ...content, ...ascii("\nendstream")]);
+      const contentId = add([
+        ...ascii(`<< /Length ${content.length} >>\nstream\n`),
+        ...content,
+        ...ascii("\nendstream"),
+      ]);
 
       const fonts = [...(page.fonts.size ? page.fonts : used)]
         .sort()

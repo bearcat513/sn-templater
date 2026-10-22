@@ -31,6 +31,7 @@ import { readChartTemplate, serializeChartTemplate } from '../engine/validate'
 import type { SchemaField } from '../engine/vocabulary'
 import { ChartKindSelect, showValuesLabel } from '../designer/ChartFields'
 import { FieldPicker } from '../designer/FieldPicker'
+import { prepareFonts } from '../hooks/useFonts'
 import { useAsync } from '../hooks/useAsync'
 import { useDebounced } from '../hooks/useDebounced'
 import { useElementSize } from '../hooks/useElementSize'
@@ -40,8 +41,25 @@ import { SchemaService, type TableSchema } from '../services/schema'
 import { TemplateService, type TemplateRecord } from '../services/templates'
 import type { Slide } from '../slides/paginate'
 import { SlideView } from '../slides/SlideView'
-import { Badge, Button, ColorField, Field, Input, Notice, NumberInput, Segmented, Select, Spinner, Switch, Textarea } from '../ui/controls'
-import { ConfirmModal, useToast } from '../ui/overlays'
+import {
+    Badge,
+    Button,
+    ColorField,
+    Field,
+    Input,
+    Notice,
+    NumberInput,
+    Segmented,
+    Select,
+    Spinner,
+    Switch,
+    Textarea,
+} from '../ui/controls'
+import { ConfirmModal, Menu, useToast } from '../ui/overlays'
+import { ConflictModal } from '../ui/ConflictModal'
+import { ConflictError } from '../services/http'
+import { PublishModal, UsageList } from '../designer/PublishModal'
+import { useLocalDraft } from '../hooks/useLocalDraft'
 import { TablePicker } from './common'
 
 type Meta = { name: string; description: string; active: boolean; table: string; tableLabel: string; query: string }
@@ -63,7 +81,8 @@ const NUMBER_TYPES = new Set(['integer', 'longint', 'decimal', 'float', 'numeric
 type Showing = 'document' | 'slide'
 
 /** What shape of chart a counted point was counted for. */
-const pointShape = (point: ChartDatum): ChartShape => (point.start !== undefined ? 'spans' : point.to !== undefined ? 'pairs' : 'single')
+const pointShape = (point: ChartDatum): ChartShape =>
+    point.start !== undefined ? 'spans' : point.to !== undefined ? 'pairs' : 'single'
 
 /**
  * The designer for a chart template: which records, grouped by what, measured
@@ -89,7 +108,10 @@ export function ChartEditorView({
     const [record, setRecord] = useState(opened)
     const [schema, setSchema] = useState(openedSchema)
     const [meta, setMeta] = useState<Meta>(() => metaOf(opened))
-    const [initial] = useState(() => readChartTemplate(opened.body ?? '', openedSchema.fields, opened.tableLabel))
+    // The designer opens the unpublished draft when there is one.
+    const [initial] = useState(() =>
+        readChartTemplate(opened.draftBody || opened.body || '', openedSchema.fields, opened.tableLabel)
+    )
     const [chart, setChart] = useState<ChartTemplate>(() =>
         initial.ok ? initial.value : starterChart(openedSchema.fields, opened.tableLabel)
     )
@@ -101,9 +123,28 @@ export function ChartEditorView({
     const [saveError, setSaveError] = useState('')
     const [showing, setShowing] = useState<Showing>('document')
     const [pending, setPending] = useState<(() => void) | null>(null)
+    const [conflict, setConflict] = useState<ConflictError | null>(null)
+    const [publishing, setPublishing] = useState(false)
+    const [confirmDiscard, setConfirmDiscard] = useState(false)
 
     const canEdit = session.canEdit
     const dirty = snapshot(meta, chart) !== saved
+    const unpublished = record.hasDraft || dirty
+    /** A chart nobody has published since it was made publishes on its first save. */
+    const publishesOnSave = record.version <= 1 && !record.hasDraft
+    // Where the chart is placed: a change to it shows in all of them.
+    const usages = useAsync(() => TemplateService.chartUsages(record.sysId), [record.sysId], canEdit)
+
+    const local = useLocalDraft<{ meta: Meta; chart: ChartTemplate }>(
+        canEdit ? `template:${record.sysId}` : null,
+        useMemo(() => ({ meta, chart }), [meta, chart]),
+        dirty,
+        record.modCount
+    )
+    const leftOver = local.found && snapshot(local.found.value.meta, local.found.value.chart) !== saved
+    useEffect(() => {
+        if (local.found && !leftOver) local.dismiss()
+    }, [local, leftOver])
     const set = (changes: Partial<ChartTemplate>) => setChart(current => ({ ...current, ...changes }))
 
     useInspect('chart.record', record)
@@ -147,7 +188,10 @@ export function ChartEditorView({
             table: meta.table,
             spec: chart,
             // Counted for another shape a moment ago: nothing to draw until this one's arrive.
-            points: grouped.data && grouped.data.points.every(point => pointShape(point) === shape) ? chartPoints(chart, grouped.data.points) : [],
+            points:
+                grouped.data && grouped.data.points.every(point => pointShape(point) === shape)
+                    ? chartPoints(chart, grouped.data.points)
+                    : [],
             total: grouped.data?.total ?? 0,
             ...(grouped.data && measuredNote(chart, grouped.data) ? { note: measuredNote(chart, grouped.data) } : {}),
         }),
@@ -156,11 +200,15 @@ export function ChartEditorView({
 
     /* ------------------------------ the preview ----------------------------- */
 
-    const sample = useMemo(() => previewOf(showing, loaded, schema, session, meta.name), [showing, loaded, schema, session, meta.name])
+    const sample = useMemo(
+        () => previewOf(showing, loaded, schema, session, meta.name),
+        [showing, loaded, schema, session, meta.name]
+    )
     const stage = useRef<HTMLDivElement>(null)
     const { width } = useElementSize(stage)
 
-    const downloadPdf = () => {
+    const downloadPdf = async () => {
+        await prepareFonts(sample.template, sample.job)
         const result =
             showing === 'slide'
                 ? renderPdfSlides(sample.template, sample.job, [sample.slide])
@@ -170,51 +218,85 @@ export function ChartEditorView({
 
     /* ------------------------------- saving ------------------------------- */
 
-    const save = useCallback(async () => {
-        if (!canEdit) return
-        if (!meta.name.trim()) {
-            setSaveError('A chart needs a name.')
-            return
-        }
-        setSaving(true)
-        setSaveError('')
+    const save = useCallback(
+        async (mode: { publish: boolean; note?: string; force?: boolean }) => {
+            if (!canEdit || saving) return
+            if (!meta.name.trim()) {
+                setSaveError('A chart needs a name.')
+                return
+            }
+            setSaving(true)
+            setSaveError('')
+            try {
+                const body = serializeChartTemplate(chart)
+                const next = await TemplateService.update(
+                    record.sysId,
+                    {
+                        name: meta.name.trim(),
+                        description: meta.description,
+                        active: meta.active,
+                        table: meta.table,
+                        query: meta.query,
+                        ...(mode.publish ? { body, draftBody: '', publishNote: mode.note ?? '' } : { draftBody: body }),
+                    },
+                    mode.force ? {} : { expect: record.modCount }
+                )
+                if (mode.publish) forgetChart(record.sysId)
+                const nextMeta = { ...meta, tableLabel: next.tableLabel || meta.tableLabel }
+                setMeta(nextMeta)
+                setRecord(next)
+                setSaved(snapshot(nextMeta, chart))
+                setPageTitle(next.name)
+                local.clear()
+                log.info('editor', `${mode.publish ? 'Published' : 'Saved a draft of'} chart “${next.name}”`, {
+                    sysId: next.sysId,
+                    version: next.version,
+                })
+                toast(
+                    mode.publish
+                        ? `Published version ${next.version}.`
+                        : 'Draft saved. Everywhere the chart is placed keeps the published version until you publish.'
+                )
+            } catch (failure) {
+                if (failure instanceof ConflictError) {
+                    setConflict(failure)
+                    return
+                }
+                const { message, data } = describeError(failure)
+                log.error('editor', `Save failed: ${message}`, data)
+                setSaveError(failure instanceof Error ? failure.message : 'The chart could not be saved.')
+            } finally {
+                setSaving(false)
+            }
+        },
+        [canEdit, saving, meta, chart, record, toast, local]
+    )
+
+    const saveDraft = useCallback(() => save({ publish: publishesOnSave }), [save, publishesOnSave])
+
+    /** Throws the draft away and opens the published chart again. */
+    const discardDraft = async () => {
+        setConfirmDiscard(false)
         try {
-            const body = serializeChartTemplate(chart)
-            const next = await TemplateService.update(record.sysId, {
-                name: meta.name.trim(),
-                description: meta.description,
-                active: meta.active,
-                table: meta.table,
-                query: meta.query,
-                body,
-            })
-            forgetChart(record.sysId)
-            const nextMeta = { ...meta, tableLabel: next.tableLabel || meta.tableLabel }
-            setMeta(nextMeta)
-            setRecord(next)
-            setSaved(snapshot(nextMeta, chart))
-            setPageTitle(next.name)
-            log.info('editor', `Saved chart “${next.name}”`, { sysId: next.sysId })
-            toast('Chart saved.')
+            await TemplateService.update(record.sysId, { draftBody: '' })
+            local.clear()
+            setSaved(snapshot(meta, chart))
+            navigate('edit', { id: record.sysId, reopen: String(Date.now()) }, { replace: true })
         } catch (failure) {
-            const { message, data } = describeError(failure)
-            log.error('editor', `Save failed: ${message}`, data)
-            setSaveError(failure instanceof Error ? failure.message : 'The chart could not be saved.')
-        } finally {
-            setSaving(false)
+            setSaveError(failure instanceof Error ? failure.message : 'The draft could not be discarded.')
         }
-    }, [canEdit, meta, chart, record.sysId, toast])
+    }
 
     useEffect(() => {
         const onKey = (event: KeyboardEvent) => {
             if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
                 event.preventDefault()
-                void save()
+                void saveDraft()
             }
         }
         window.addEventListener('keydown', onKey)
         return () => window.removeEventListener('keydown', onKey)
-    }, [save])
+    }, [saveDraft])
 
     useEffect(() => {
         if (!dirty) return
@@ -283,21 +365,105 @@ export function ChartEditorView({
                     <span className="tp-subtle tp-truncate">
                         {meta.tableLabel || meta.table} <code>{meta.table}</code>
                     </span>
-                    {dirty && <Badge tone="warning">Unsaved</Badge>}
+                    {record.version > 0 && <Badge tone="outline">v{record.version}</Badge>}
+                    {dirty ? (
+                        <Badge tone="warning">Unsaved</Badge>
+                    ) : (
+                        record.hasDraft && <Badge tone="warning">Unpublished draft</Badge>
+                    )}
                 </div>
                 <div className="tp-row">
                     {canEdit && (
-                        <Button variant="primary" icon="save" busy={saving} disabled={!dirty} onClick={() => void save()}>
+                        <Button
+                            variant={publishesOnSave ? 'primary' : 'secondary'}
+                            icon="save"
+                            busy={saving && !publishing}
+                            disabled={!dirty}
+                            onClick={() => void saveDraft()}
+                            title={publishesOnSave ? 'Save and publish (Ctrl+S)' : 'Save a draft (Ctrl+S)'}
+                        >
                             Save
                         </Button>
+                    )}
+                    {canEdit && !publishesOnSave && (
+                        <Button
+                            variant="primary"
+                            icon="publish"
+                            disabled={!unpublished || saving}
+                            onClick={() => setPublishing(true)}
+                        >
+                            Publish
+                        </Button>
+                    )}
+                    {canEdit && record.hasDraft && (
+                        <Menu
+                            label="Draft actions"
+                            items={[
+                                {
+                                    label: 'Discard unpublished changes',
+                                    icon: 'trash',
+                                    danger: true,
+                                    onSelect: () => setConfirmDiscard(true),
+                                },
+                            ]}
+                        />
                     )}
                 </div>
             </header>
 
             <div className="tp-editor__notices">
-                {!canEdit && <Notice kind="info" lines={['You can look at this chart, but only Templater editors can change it.']} />}
-                <Notice kind="critical" lines={saveError ? [saveError] : []} onDismiss={saveError ? () => setSaveError('') : undefined} />
-                <Notice kind="warning" lines={parseNote ? [parseNote] : []} onDismiss={parseNote ? () => setParseNote('') : undefined} />
+                {!canEdit && (
+                    <Notice
+                        kind="info"
+                        lines={['You can look at this chart, but only Templater editors can change it.']}
+                    />
+                )}
+                <Notice
+                    kind="critical"
+                    lines={saveError ? [saveError] : []}
+                    onDismiss={saveError ? () => setSaveError('') : undefined}
+                />
+                {canEdit && leftOver && local.found && (
+                    <Notice
+                        kind="warning"
+                        title="Unsaved changes from earlier"
+                        lines={[
+                            `Changes you made on ${new Date(local.found.savedAt).toLocaleString()} were never saved, and were kept in this browser.`,
+                        ]}
+                    >
+                        <div className="tp-row">
+                            <Button
+                                size="sm"
+                                variant="primary"
+                                icon="undo"
+                                onClick={() => {
+                                    setMeta(local.found!.value.meta)
+                                    setChart(local.found!.value.chart)
+                                    local.dismiss()
+                                }}
+                            >
+                                Restore them
+                            </Button>
+                            <Button size="sm" variant="ghost" onClick={local.dismiss}>
+                                Throw them away
+                            </Button>
+                        </div>
+                    </Notice>
+                )}
+                {usages.data && usages.data.length > 0 && (
+                    <Notice
+                        kind="info"
+                        title={`Placed in ${usages.data.length} template${usages.data.length === 1 ? '' : 's'} and presentation${usages.data.length === 1 ? '' : 's'}`}
+                    >
+                        <p className="tp-muted">Publishing a change here changes it in every one of them.</p>
+                        <UsageList usages={usages.data} />
+                    </Notice>
+                )}
+                <Notice
+                    kind="warning"
+                    lines={parseNote ? [parseNote] : []}
+                    onDismiss={parseNote ? () => setParseNote('') : undefined}
+                />
             </div>
 
             <div className="tp-chart-designer">
@@ -306,7 +472,11 @@ export function ChartEditorView({
                         <div className="tp-card__body tp-stack">
                             <h2 className="tp-card__title">Which records</h2>
                             <Field label="Table">
-                                <TablePicker value={meta.table} label={meta.tableLabel} onChange={(table, label) => void changeTable(table, label)} />
+                                <TablePicker
+                                    value={meta.table}
+                                    label={meta.tableLabel}
+                                    onChange={(table, label) => void changeTable(table, label)}
+                                />
                             </Field>
                             <Field
                                 label="Filter"
@@ -332,7 +502,10 @@ export function ChartEditorView({
                             </Field>
                             {shape === 'spans' ? (
                                 <>
-                                    <Field label="One bar for each record, named by" hint="Its short description, its number — what people know it by.">
+                                    <Field
+                                        label="One bar for each record, named by"
+                                        hint="Its short description, its number — what people know it by."
+                                    >
                                         <FieldPicker
                                             fields={schema.fields}
                                             value={chart.groupBy}
@@ -345,7 +518,9 @@ export function ChartEditorView({
                                             <FieldPicker
                                                 fields={dateFields as SchemaField[]}
                                                 value={chart.start ?? ''}
-                                                placeholder={dateFields.length ? 'A date field' : 'This table has no date fields'}
+                                                placeholder={
+                                                    dateFields.length ? 'A date field' : 'This table has no date fields'
+                                                }
                                                 onChange={field => set({ start: field.name })}
                                                 aria-label="Start date"
                                             />
@@ -364,7 +539,11 @@ export function ChartEditorView({
                             ) : (
                                 <div className={shape === 'pairs' ? 'tp-grid tp-grid--2' : undefined}>
                                     <Field
-                                        label={shape === 'pairs' ? `${firstAxis} for each` : 'One bar, point or slice for each'}
+                                        label={
+                                            shape === 'pairs'
+                                                ? `${firstAxis} for each`
+                                                : 'One bar, point or slice for each'
+                                        }
                                         hint="A choice, a reference, a true/false field — anything with few values."
                                     >
                                         <FieldPicker
@@ -397,7 +576,13 @@ export function ChartEditorView({
                                                 label: entry.label,
                                             }))}
                                             onChange={measure =>
-                                                set({ measure, field: measure === 'count' ? undefined : (chart.field ?? numberFields[0]?.name) })
+                                                set({
+                                                    measure,
+                                                    field:
+                                                        measure === 'count'
+                                                            ? undefined
+                                                            : (chart.field ?? numberFields[0]?.name),
+                                                })
                                             }
                                             aria-label="Measure"
                                         />
@@ -407,7 +592,11 @@ export function ChartEditorView({
                                             <FieldPicker
                                                 fields={numberFields as SchemaField[]}
                                                 value={chart.field ?? ''}
-                                                placeholder={numberFields.length ? 'A number field' : 'This table has no number fields'}
+                                                placeholder={
+                                                    numberFields.length
+                                                        ? 'A number field'
+                                                        : 'This table has no number fields'
+                                                }
                                                 onChange={field => set({ field: field.name })}
                                                 aria-label="Measured field"
                                             />
@@ -422,8 +611,14 @@ export function ChartEditorView({
                         <div className="tp-card__body tp-stack">
                             <h2 className="tp-card__title">How it looks</h2>
                             <ChartKindSelect value={chart.chart} onChange={changeKind} />
-                            <Field label="Title" hint="Tokens work: {{now.date}}, {{deck.title}}, and {{list.count}} for the records counted.">
-                                <Input value={chart.title ?? ''} onChange={event => set({ title: event.target.value || undefined })} />
+                            <Field
+                                label="Title"
+                                hint="Tokens work: {{now.date}}, {{deck.title}}, and {{list.count}} for the records counted."
+                            >
+                                <Input
+                                    value={chart.title ?? ''}
+                                    onChange={event => set({ title: event.target.value || undefined })}
+                                />
                             </Field>
                             {shape !== 'spans' && (
                                 <Segmented<ChartTemplate['order']>
@@ -438,7 +633,10 @@ export function ChartEditorView({
                                 />
                             )}
                             <div className="tp-grid tp-grid--2">
-                                <Field label="Height in a document (pt)" hint="On a slide, the box it is drawn in decides.">
+                                <Field
+                                    label="Height in a document (pt)"
+                                    hint="On a slide, the box it is drawn in decides."
+                                >
                                     <NumberInput
                                         min={40}
                                         max={600}
@@ -448,7 +646,12 @@ export function ChartEditorView({
                                     />
                                 </Field>
                                 {!paletteChart(chart.chart) && (
-                                    <ColorField label="Colour" value={chart.color ?? ''} onChange={color => set({ color: color || undefined })} allowEmpty />
+                                    <ColorField
+                                        label="Colour"
+                                        value={chart.color ?? ''}
+                                        onChange={color => set({ color: color || undefined })}
+                                        allowEmpty
+                                    />
                                 )}
                             </div>
                             <Switch
@@ -519,11 +722,19 @@ export function ChartEditorView({
                     <Notice kind="critical" lines={grouped.error ? [grouped.error] : []} />
                     <div ref={stage} className="tp-preview__stage">
                         <div className="tp-preview__slides">
-                            {width > 0 && <SlideView template={sample.template} slide={sample.slide} width={Math.max(160, width - 24)} />}
+                            {width > 0 && (
+                                <SlideView
+                                    template={sample.template}
+                                    slide={sample.slide}
+                                    width={Math.max(160, width - 24)}
+                                />
+                            )}
                         </div>
                     </div>
                     <div className="tp-row tp-row--between">
-                        <span className="tp-subtle">Place it with a Chart block in any template, or Insert › Chart on a custom slide.</span>
+                        <span className="tp-subtle">
+                            Place it with a Chart block in any template, or Insert › Chart on a custom slide.
+                        </span>
                         <Button size="sm" variant="secondary" icon="download" onClick={downloadPdf}>
                             Download PDF
                         </Button>
@@ -531,6 +742,40 @@ export function ChartEditorView({
                 </section>
             </div>
 
+            <PublishModal
+                open={publishing}
+                version={record.version + 1}
+                busy={saving}
+                usages={usages.data}
+                onClose={() => setPublishing(false)}
+                onPublish={note => {
+                    setPublishing(false)
+                    void save({ publish: true, note })
+                }}
+            />
+            <ConfirmModal
+                open={confirmDiscard}
+                title="Discard unpublished changes?"
+                message="The draft is deleted and the designer goes back to the published chart. This cannot be undone."
+                confirmLabel="Discard changes"
+                danger
+                onConfirm={() => void discardDraft()}
+                onCancel={() => setConfirmDiscard(false)}
+            />
+            <ConflictModal
+                conflict={conflict}
+                what="chart"
+                onClose={() => setConflict(null)}
+                onReload={() => {
+                    setConflict(null)
+                    setSaved(snapshot(meta, chart))
+                    navigate('edit', { id: record.sysId, reopen: String(Date.now()) }, { replace: true })
+                }}
+                onOverwrite={() => {
+                    setConflict(null)
+                    void save({ publish: publishesOnSave, force: true })
+                }}
+            />
             <ConfirmModal
                 open={pending !== null}
                 title="Leave without saving?"
@@ -541,6 +786,7 @@ export function ChartEditorView({
                     const go = pending
                     setPending(null)
                     setSaved(snapshot(meta, chart))
+                    local.clear()
                     go?.()
                 }}
                 onCancel={() => setPending(null)}
@@ -563,11 +809,24 @@ function previewOf(
 ): { template: PdfTemplate; job: RenderJob; slide: Slide } {
     const charts = { [chart.sysId]: chart }
     const values = contextValues(schema, session, title || 'Chart', 0)
-    const job: RenderJob = { title: title || 'Chart', author: session.displayName, subject: title, records: [], coverValues: values, charts }
+    const job: RenderJob = {
+        title: title || 'Chart',
+        author: session.displayName,
+        subject: title,
+        records: [],
+        coverValues: values,
+        charts,
+    }
     const base = { key: 'preview', owner: -1, values, related: {}, charts, label: title || 'Chart', part: 1, parts: 1 }
 
     if (showing === 'document') {
-        const block: ChartBlock = { type: 'chart', chart: chart.spec.chart, items: [], template: chart.sysId, height: chart.spec.height }
+        const block: ChartBlock = {
+            type: 'chart',
+            chart: chart.spec.chart,
+            items: [],
+            template: chart.sysId,
+            height: chart.spec.height,
+        }
         // On the cover, which is drawn once with no record: a chart template belongs to no record.
         const template: PdfTemplate = {
             page: { ...DEFAULT_PAGE },
@@ -596,6 +855,11 @@ function previewOf(
             },
         ],
     }
-    const template: PdfTemplate = { ...deck, cover: undefined, blocks: [], footer: { text: '', showPageNumbers: false } }
+    const template: PdfTemplate = {
+        ...deck,
+        cover: undefined,
+        blocks: [],
+        footer: { text: '', showPageNumbers: false },
+    }
     return { template, job, slide: { ...base, owner: -2, blocks: [], custom } }
 }

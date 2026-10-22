@@ -1,3 +1,4 @@
+import { expandBlocks } from '../engine/expand'
 import type { RenderJob, SlideSource } from '../engine/render'
 import {
     DEFAULT_TRANSITION,
@@ -59,7 +60,7 @@ export function paginate(template: PdfTemplate, job: RenderJob, within?: Within)
     const own = within ? { template } : {}
 
     if (template.cover?.length) {
-        const runs = split(template.cover)
+        const runs = split(expandBlocks(template.cover, job.coverValues, {}))
         runs.forEach((blocks, index) =>
             slides.push({
                 ...own,
@@ -78,7 +79,8 @@ export function paginate(template: PdfTemplate, job: RenderJob, within?: Within)
 
     job.records.forEach((record, index) => {
         const owner = (within?.ownerBase ?? 0) + index
-        const runs = split(template.blocks)
+        // Conditions and repeats first, so a repeat with a page break in it is a slide per row.
+        const runs = split(expandBlocks(template.blocks, record.values, record.related))
         const identity = record.values['raw.sys_id'] || String(index)
         runs.forEach((blocks, index) =>
             slides.push({

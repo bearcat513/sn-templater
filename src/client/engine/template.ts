@@ -28,16 +28,55 @@
  * record, and the totals block — a quote's arithmetic — gave way to `stats`,
  * a row of large figures that suits a slide.
  */
-import { DEFAULT_MARGINS, type Margins, type PageSize } from "./pdf";
-import type { FontFamily } from "./pdfFonts";
-
-/**
- * A chart is the third kind, and not like the other two: it draws no record.
- * It counts the records of its table that its filter matches, and is placed
- * by reference — in a document or deck as a block, on a custom slide as an
- * element — so changing it once changes it everywhere it is shown.
- */
-export type TemplateKind = "document" | "deck" | "chart";
+import { DEFAULT_MARGINS } from "./pdf";
+export type {
+  BlockCondition,
+  ConditionTest,
+  RepeatBlock,
+  TemplateKind,
+  PdfPageSetup,
+  PdfHeader,
+  PdfStyle,
+  PdfTableStyle,
+  PdfWatermark,
+  BlockAlign,
+  ListColumn,
+  RelatedListBlock,
+  ReferenceBlock,
+  CodeBlock,
+  CalloutTone,
+  ListStyle,
+  ChartKind,
+  ChartShape,
+  ChartBlock,
+  ChartItem,
+  ChartSource,
+  ChartMeasure,
+  ChartTemplate,
+  PdfBlock,
+  BlockType,
+  PdfTemplate,
+  StarterField,
+} from "./types";
+import type {
+  RepeatBlock,
+  TemplateKind,
+  PdfPageSetup,
+  PdfStyle,
+  PdfTableStyle,
+  RelatedListBlock,
+  ReferenceBlock,
+  CalloutTone,
+  ChartKind,
+  ChartShape,
+  ChartSource,
+  ChartMeasure,
+  ChartTemplate,
+  PdfBlock,
+  BlockType,
+  PdfTemplate,
+  StarterField,
+} from "./types";
 
 export const TEMPLATE_KINDS: TemplateKind[] = ["document", "deck", "chart"];
 
@@ -48,42 +87,6 @@ export const TEMPLATE_KIND_LABELS: Record<TemplateKind, string> = {
 };
 
 /* -------------------------------- the page ------------------------------- */
-
-export type PdfPageSetup = {
-  size: PageSize;
-  /** Paper on its side. Ignored for the slide sizes, which already are. */
-  landscape?: boolean;
-  margins: Margins;
-  family: FontFamily;
-  /** Body size in points. Headings are relative to it unless one says otherwise. */
-  fontSize: number;
-  /** Body text. */
-  textColor: string;
-  /** Secondary text: labels, captions, the footer. */
-  mutedColor: string;
-  /** Headings, rules and emphasis. */
-  accentColor: string;
-  /** The sheet itself. Absent is white paper; a slide often wants more. */
-  background?: string;
-};
-
-/**
- * The letterhead: a logo and a block of text in the top margin of every page.
- *
- * Page furniture rather than a block, because it belongs on every page and is
- * drawn after layout, when the page count is known.
- */
-export type PdfHeader = {
-  /** A base64 `data:` URL. See ./image.ts for what may go in one. */
-  logo?: string;
-  logoWidth?: number;
-  logoAlign?: "left" | "right";
-  /** Address, tagline — tokens work here too. */
-  text?: string;
-  color?: string;
-  rule?: boolean;
-  firstPageOnly?: boolean;
-};
 
 export const DEFAULT_PAGE: PdfPageSetup = {
   size: "A4",
@@ -96,37 +99,6 @@ export const DEFAULT_PAGE: PdfPageSetup = {
 };
 
 /* -------------------------------- the style ------------------------------ */
-
-/** How the document is set, as opposed to what is on it. */
-export type PdfStyle = {
-  lineHeight: number;
-  paragraphSpacing: number;
-  headingScale: number;
-  headingFamily?: FontFamily;
-  headingUppercase?: boolean;
-  ruleColor: string;
-  table: PdfTableStyle;
-};
-
-export type PdfTableStyle = {
-  headerFill?: string;
-  headerColor?: string;
-  headerUppercase?: boolean;
-  zebra?: string;
-  gridColor: string;
-  rowLines: boolean;
-  cellPadding: number;
-};
-
-/** A word stamped across every page: DRAFT, CONFIDENTIAL, `{{record.state}}`. */
-export type PdfWatermark = {
-  text: string;
-  uppercase?: boolean;
-  color?: string;
-  size?: number;
-  opacity?: number;
-  angle?: number;
-};
 
 export const DEFAULT_TABLE_STYLE: PdfTableStyle = {
   gridColor: "#e4e4e7",
@@ -153,84 +125,6 @@ export function defaultStyle(fontSize: number = DEFAULT_PAGE.fontSize): PdfStyle
 
 /* -------------------------------- blocks --------------------------------- */
 
-export type BlockAlign = "left" | "center" | "right";
-
-/** A column of a related list: a field path on the related table. */
-export type ListColumn = {
-  /** A field on the related table; dot-walking works (`assigned_to.email`). */
-  field: string;
-  header: string;
-  /** A share of the table's width, normalised across the columns. */
-  width: number;
-  align?: BlockAlign;
-};
-
-export type RelatedListBlock = {
-  type: "relatedList";
-  /** The related table, e.g. `task_sla`. */
-  table: string;
-  /** The reference field on it that points back at the record, e.g. `task`. */
-  field: string;
-  /** Extra encoded query, ANDed on: `active=true`. */
-  query?: string;
-  /** A field to sort by; a leading `-` sorts descending. */
-  orderBy?: string;
-  /** Rows at most. The rest are counted in `{{list.count}}` but not drawn. */
-  limit?: number;
-  /** Drawn above the table. Tokens work, plus `{{list.count}}`. */
-  title?: string;
-  columns: ListColumn[];
-  /** What to print when nothing matches. Empty prints nothing at all. */
-  emptyText?: string;
-  headerFill?: string;
-  zebra?: string;
-  fontSize?: number;
-};
-
-/**
- * A record that one of this record's reference fields points at — the caller,
- * the configuration item, the assignment group — as a card of its fields.
- *
- * Its values are dot-walked tokens (`{{record.caller_id.email}}`), so the
- * loader fetches them with the record itself and nothing is read twice.
- */
-export type ReferenceBlock = {
-  type: "reference";
-  /** The reference field on this record, e.g. `caller_id`. */
-  field: string;
-  /** The table it refers to, e.g. `sys_user`. Used for the link to it. */
-  table: string;
-  /** Drawn at the top of the card. Tokens work. Absent is no title. */
-  title?: string;
-  /** Fields of the referenced record: a path on *its* table, and a label. */
-  rows: { label: string; field: string }[];
-  /** A boxed card, or label and value lines like a field list. */
-  layout?: "card" | "plain";
-  /** Makes the title a link to the referenced record on the instance. */
-  link?: boolean;
-  /** What to print when the field is empty. Empty prints nothing at all. */
-  emptyText?: string;
-  /** The card's edge and title. Absent is the page's accent. */
-  color?: string;
-};
-
-/** A box of preformatted text — a script, a payload, a log line — in a fixed-width face. */
-export type CodeBlock = {
-  type: "code";
-  /** Kept exactly as written: spaces, tabs and blank lines included. Tokens work. */
-  code: string;
-  /** A small label above the code: a language, a file name. */
-  title?: string;
-  size?: number;
-  lineNumbers?: boolean;
-  /** The box. Absent is a light grey. */
-  background?: string;
-  color?: string;
-  spaceAfter?: number;
-};
-
-export type CalloutTone = "info" | "success" | "warning" | "critical" | "neutral";
-
 export const CALLOUT_TONES: { tone: CalloutTone; label: string; color: string; fill: string }[] = [
   { tone: "info", label: "Info", color: "#2563eb", fill: "#eff6ff" },
   { tone: "success", label: "Success", color: "#16a34a", fill: "#f0fdf4" },
@@ -243,28 +137,6 @@ export const calloutColors = (tone: CalloutTone | undefined, color?: string): { 
   const found = CALLOUT_TONES.find(entry => entry.tone === tone) ?? CALLOUT_TONES[0]!;
   return { color: color ?? found.color, fill: found.fill };
 };
-
-export type ListStyle = "bullet" | "number" | "check";
-
-export type ChartKind =
-  | "column"
-  | "bar"
-  | "line"
-  | "area"
-  | "pie"
-  | "donut"
-  | "funnel"
-  | "stacked"
-  | "heatmap"
-  | "sankey"
-  | "gantt";
-
-/**
- * What a chart's figures are: one figure for each label; a figure for each
- * pair of labels — from and to, row and column, category and series; or a
- * span of time for each label.
- */
-export type ChartShape = "single" | "pairs" | "spans";
 
 export const CHART_KINDS: {
   kind: ChartKind;
@@ -286,7 +158,8 @@ export const CHART_KINDS: {
   { kind: "gantt", label: "Gantt", shape: "spans" },
 ];
 
-export const chartShape = (kind: ChartKind): ChartShape => CHART_KINDS.find(entry => entry.kind === kind)?.shape ?? "single";
+export const chartShape = (kind: ChartKind): ChartShape =>
+  CHART_KINDS.find(entry => entry.kind === kind)?.shape ?? "single";
 
 /** What a chart of pairs calls its two labels. */
 export const chartAxes = (kind: ChartKind): [string, string] =>
@@ -296,69 +169,7 @@ export const chartAxes = (kind: ChartKind): [string, string] =>
 export const paletteChart = (kind: ChartKind): boolean =>
   kind === "pie" || kind === "donut" || kind === "stacked" || kind === "sankey";
 
-/**
- * A chart of figures, laid out by ./chart.ts and drawn the same on paper and
- * on screen.
- *
- * Its figures are either written into the block — a label and a value each,
- * tokens and all, so `{{record.reassignment_count}}` can be a bar — or
- * counted from the records that reference this one, grouped by one of their
- * fields: an incident's tasks by state, a change's approvals by approver —
- * or they are a chart template's, placed here by reference.
- */
-export type ChartBlock = {
-  type: "chart";
-  chart: ChartKind;
-  /** Drawn above the chart. Tokens work, plus `{{list.count}}` when it counts related records. */
-  title?: string;
-  /**
-   * Written figures. A value that does not fill to a number is left out. A
-   * chart of pairs reads `to` as the second label; a Gantt chart reads
-   * `start` and `end` as dates instead of a value.
-   */
-  items: ChartItem[];
-  /** When set, the figures are counted from related records instead of `items`. */
-  related?: ChartSource;
-  /**
-   * A chart template's sys_id. When set, the chart is that template's —
-   * its records, its grouping and its look — drawn at this block's height,
-   * under this block's title if it has one and the template's if not.
-   */
-  template?: string;
-  /** The plot's height in points, title and legend aside. */
-  height: number;
-  /** The one series' colour. A pie or donut takes the categorical palette instead. */
-  color?: string;
-  /** Each figure printed beside its mark. */
-  showValues?: boolean;
-  /** What to print when there is nothing to chart. Empty prints nothing at all. */
-  emptyText?: string;
-};
-
-/** One written figure, tokens and all. */
-export type ChartItem = { label: string; value: string; to?: string; start?: string; end?: string };
-
-/**
- * Records that reference this one, counted by the display value of one of
- * their fields — and of a second, for a chart of pairs — or, for a Gantt
- * chart, one bar each, named by `groupBy` and spanning `start` to `end`.
- */
-export type ChartSource = {
-  table: string;
-  field: string;
-  query?: string;
-  groupBy: string;
-  /** The second label of a pair. */
-  thenBy?: string;
-  /** A Gantt bar's date fields. */
-  start?: string;
-  end?: string;
-};
-
 /* ---------------------------- chart templates ---------------------------- */
-
-/** What a chart template measures in each group: how many records, or a sum or average of a number field. */
-export type ChartMeasure = "count" | "sum" | "avg" | "min" | "max";
 
 export const CHART_MEASURES: { measure: ChartMeasure; label: string }[] = [
   { measure: "count", label: "Number of records" },
@@ -368,39 +179,15 @@ export const CHART_MEASURES: { measure: ChartMeasure; label: string }[] = [
   { measure: "max", label: "Highest" },
 ];
 
-/**
- * The body of a chart template.
- *
- * The records are the template's own table and filter — the record's
- * `table` and `query` columns, as a deck's are — grouped by one field and
- * measured in each group. The rest is the look, as a chart block has it.
- */
-export type ChartTemplate = {
-  version: 1;
-  chart: ChartKind;
-  /** Drawn above the chart. Tokens work: the deck's, and `{{list.count}}` for the records counted. */
-  title?: string;
-  /** A field on the table: one bar, point or slice per value of it — or, for a Gantt chart, what each record's bar is called. */
-  groupBy: string;
-  /** The second label of a pair, for a chart of pairs. */
-  thenBy?: string;
-  /** A Gantt bar's date fields: each record is one bar from `start` to `end`. */
-  start?: string;
-  end?: string;
-  measure: ChartMeasure;
-  /** The number field summed, averaged or compared; unused when counting. */
-  field?: string;
-  /** Largest first, or in the field's own order — a priority's, a state's — which suits a line. */
-  order: "value" | "field";
-  /** The plot's height in a document; on a slide the element's box decides. */
-  height: number;
-  color?: string;
-  showValues?: boolean;
-  emptyText?: string;
-};
-
 /** The field types a Gantt bar can start or end at. */
-export const DATE_TYPES = new Set(["glide_date", "glide_date_time", "due_date", "date", "datetime", "calendar_date_time"]);
+export const DATE_TYPES = new Set([
+  "glide_date",
+  "glide_date_time",
+  "due_date",
+  "date",
+  "datetime",
+  "calendar_date_time",
+]);
 
 /** What a Gantt bar is named by, and where it starts and ends, in order of preference. */
 const SPAN_NAMES = ["short_description", "name", "number"];
@@ -429,13 +216,19 @@ export function chartFieldsFor(
     const dates = fields.filter(field => DATE_TYPES.has(field.type ?? "")).map(field => field.name);
     const start = has(current.start) ? current.start : (first(SPAN_STARTS) ?? dates[0]);
     const end = has(current.end) ? current.end : (first(SPAN_ENDS) ?? dates.find(name => name !== start));
-    const groupBy = was === "spans" && has(current.groupBy) ? current.groupBy : (first([displayField, ...SPAN_NAMES]) ?? current.groupBy);
+    const groupBy =
+      was === "spans" && has(current.groupBy)
+        ? current.groupBy
+        : (first([displayField, ...SPAN_NAMES]) ?? current.groupBy);
     return { groupBy, ...(start ? { start } : {}), ...(end ? { end } : {}) };
   }
   // A Gantt bar's name is no grouping: back to one that is.
   const groupBy = was === "spans" ? (first(STARTER_GROUPS) ?? current.groupBy) : current.groupBy;
   if (shape === "single") return { groupBy };
-  const thenBy = has(current.thenBy) && current.thenBy !== groupBy ? current.thenBy : first(STARTER_GROUPS.filter(name => name !== groupBy));
+  const thenBy =
+    has(current.thenBy) && current.thenBy !== groupBy
+      ? current.thenBy
+      : first(STARTER_GROUPS.filter(name => name !== groupBy));
   return { groupBy, ...(thenBy ? { thenBy } : {}) };
 }
 
@@ -463,77 +256,6 @@ export function starterChart(fields: StarterField[] = [], tableLabel = "Records"
   };
 }
 
-export type PdfBlock =
-  | { type: "heading"; text: string; size?: number; align?: BlockAlign; color?: string; spaceAfter?: number }
-  | {
-      type: "text";
-      text: string;
-      size?: number;
-      align?: BlockAlign;
-      color?: string;
-      bold?: boolean;
-      italic?: boolean;
-      spaceAfter?: number;
-    }
-  | { type: "spacer"; height: number }
-  | { type: "divider"; color?: string; thickness?: number }
-  | {
-      type: "image";
-      source: string;
-      width: number;
-      align?: BlockAlign;
-      caption?: string;
-      spaceAfter?: number;
-    }
-  | { type: "columns"; gap?: number; columns: { heading?: string; text: string; align?: BlockAlign }[] }
-  | { type: "fields"; rows: { label: string; value: string }[] }
-  | RelatedListBlock
-  | { type: "stats"; items: { label: string; value: string }[]; color?: string }
-  | { type: "signatures"; parties: { label: string; caption?: string }[] }
-  | ReferenceBlock
-  | CodeBlock
-  | ChartBlock
-  | {
-      type: "link";
-      /** What is read. Tokens work. Empty uses the address itself. */
-      text: string;
-      /** Where it goes: a web address, mail or phone, or a path on this instance. Tokens work. */
-      url: string;
-      size?: number;
-      align?: BlockAlign;
-      color?: string;
-      bold?: boolean;
-      spaceAfter?: number;
-    }
-  | {
-      type: "callout";
-      tone: CalloutTone;
-      title?: string;
-      text: string;
-      /** Overrides the tone's own colour for the edge and title. */
-      color?: string;
-    }
-  | {
-      type: "list";
-      style: ListStyle;
-      /** One entry each. An entry whose value runs over several lines is that many entries. */
-      items: string[];
-      size?: number;
-      spaceAfter?: number;
-    }
-  | {
-      type: "table";
-      columns: { header: string; width: number; align?: BlockAlign }[];
-      /** Cells, row by row. Tokens work in each. */
-      rows: string[][];
-      headerFill?: string;
-      zebra?: string;
-      fontSize?: number;
-    }
-  | { type: "pageBreak" };
-
-export type BlockType = PdfBlock["type"];
-
 export const BLOCK_TYPES: { type: BlockType; label: string; description: string }[] = [
   { type: "heading", label: "Heading", description: "A title line, larger than the body" },
   { type: "text", label: "Text", description: "A paragraph, wrapped to the page" },
@@ -549,6 +271,7 @@ export const BLOCK_TYPES: { type: BlockType; label: string; description: string 
   { type: "code", label: "Code", description: "Preformatted text in a fixed-width face — a script, a payload" },
   { type: "link", label: "Link", description: "Text that opens a web page, an email or the record" },
   { type: "image", label: "Image", description: "A picture in the flow — a logo, a diagram" },
+  { type: "repeat", label: "Repeat", description: "Blocks of your own, once for each related record" },
   { type: "signatures", label: "Signatures", description: "Ruled areas for names and dates" },
   { type: "divider", label: "Divider", description: "A horizontal rule" },
   { type: "spacer", label: "Spacer", description: "Vertical space" },
@@ -559,27 +282,7 @@ export const MAX_BLOCKS = 200;
 export const MAX_RELATED_ROWS = 500;
 export const DEFAULT_RELATED_LIMIT = 50;
 
-export type PdfTemplate = {
-  page: PdfPageSetup;
-  style?: PdfStyle;
-  header?: PdfHeader;
-  watermark?: PdfWatermark;
-  /**
-   * Drawn once, before the first record: a title page for a document batch,
-   * a title slide for a deck. Its tokens are the deck's, not a record's.
-   */
-  cover?: PdfBlock[];
-  blocks: PdfBlock[];
-  footer: {
-    text: string;
-    showPageNumbers: boolean;
-  };
-};
-
 /* -------------------------------- starters ------------------------------- */
-
-/** The fields of a table, as much of them as a starter template needs. */
-export type StarterField = { name: string; label: string };
 
 /** Fields people expect near the top of a record, in the order they expect them. */
 const PREFERRED_FIELDS = [
@@ -605,8 +308,8 @@ const SKIPPED = /^(sys_(?!updated_on|created_on|created_by)|description$|comment
 /** Picks the fields a fresh template opens on — the ones a reader looks for first. */
 export function pickStarterFields(fields: StarterField[], count: number): StarterField[] {
   const byName = new Map(fields.map(field => [field.name, field]));
-  const chosen: StarterField[] = PREFERRED_FIELDS.map(name => byName.get(name)).filter(
-    (field): field is StarterField => Boolean(field),
+  const chosen: StarterField[] = PREFERRED_FIELDS.map(name => byName.get(name)).filter((field): field is StarterField =>
+    Boolean(field),
   );
   for (const field of fields) {
     if (chosen.length >= count) break;
@@ -830,6 +533,18 @@ export function blankBlock(type: BlockType, kind: TemplateKind = "document"): Pd
         ],
         headerFill: "#f4f4f5",
       };
+    case "repeat":
+      return {
+        type: "repeat",
+        table: "",
+        field: "",
+        limit: DEFAULT_RELATED_LIMIT,
+        blocks: [
+          { type: "heading", text: "{{row.index}}. {{row.number}} {{row.short_description}}", size: deck ? 22 : 12 },
+          { type: "fields", rows: [{ label: "State", value: "{{row.state}}" }] },
+        ],
+        emptyText: "",
+      };
     case "pageBreak":
       return { type: "pageBreak" };
   }
@@ -847,7 +562,18 @@ export function templateStrings(template: PdfTemplate): string[] {
 }
 
 export function blockStrings(block: PdfBlock): string[] {
+  const when = block.when ? [block.when.value, block.when.to ?? ""] : [];
+  return [...when, ...ownStrings(block)];
+}
+
+/** Tokens that belong to a repeat's row, filled by the repeat itself rather than from the record. */
+const ROW_TOKEN = /\{\{\s*row\.[^}]*\}\}/g;
+
+function ownStrings(block: PdfBlock): string[] {
   switch (block.type) {
+    case "repeat":
+      // The record's own tokens inside are fetched with the record; the rows' are the repeat's.
+      return [block.emptyText ?? "", ...block.blocks.flatMap(blockStrings).map(text => text.replace(ROW_TOKEN, ""))];
     case "heading":
     case "text":
       return [block.text];
@@ -880,7 +606,9 @@ export function blockStrings(block: PdfBlock): string[] {
       return [
         block.title ?? "",
         block.emptyText ?? "",
-        ...(block.related || block.template ? [] : block.items.flatMap(item => [item.label, item.value, item.to ?? "", item.start ?? "", item.end ?? ""])),
+        ...(block.related || block.template
+          ? []
+          : block.items.flatMap(item => [item.label, item.value, item.to ?? "", item.start ?? "", item.end ?? ""])),
       ];
     case "link":
       return [block.text, block.url];
@@ -932,10 +660,15 @@ export const chartRelatedList = (source: ChartSource): RelatedListBlock => ({
 /** Every related-list block — and every chart counting related records — cover and body alike. */
 export const relatedBlocks = (template: PdfTemplate): RelatedListBlock[] =>
   [...template.blocks, ...(template.cover ?? [])]
-    .map(block => (block.type === "chart" && block.related?.groupBy ? chartRelatedList(block.related) : block))
-    .filter(
-      (block): block is RelatedListBlock => block.type === "relatedList" && Boolean(block.table && block.field),
-    );
+    .flatMap(block => (block.type === "repeat" ? [block, ...block.blocks] : [block]))
+    .map(block =>
+      block.type === "chart" && block.related?.groupBy
+        ? chartRelatedList(block.related)
+        : block.type === "repeat"
+          ? repeatRelatedList(block)
+          : block,
+    )
+    .filter((block): block is RelatedListBlock => block.type === "relatedList" && Boolean(block.table && block.field));
 
 /** The chart templates a template places, cover and body alike, each once. */
 export const chartTemplateIds = (template: PdfTemplate): string[] => [
@@ -945,3 +678,25 @@ export const chartTemplateIds = (template: PdfTemplate): string[] => [
     ),
   ),
 ];
+
+/** The fields of a row a repeat's blocks use: `{{row.x}}` and `{{row.raw.x}}`, not `{{row.index}}` or `{{row.count}}`. */
+export function rowFields(block: RepeatBlock): string[] {
+  const fields = new Set<string>();
+  for (const text of block.blocks.flatMap(blockStrings)) {
+    for (const match of text.matchAll(/\{\{\s*row\.(?:raw\.)?([A-Za-z_][A-Za-z0-9_.]*)/g)) {
+      if (match[1] !== "index" && match[1] !== "count") fields.add(match[1]!);
+    }
+  }
+  return [...fields].sort();
+}
+
+/** The rows a repeat draws its blocks for, asked for as a related list — so they are fetched and keyed alike. */
+export const repeatRelatedList = (block: RepeatBlock): RelatedListBlock => ({
+  type: "relatedList",
+  table: block.table,
+  field: block.field,
+  ...(block.query ? { query: block.query } : {}),
+  ...(block.orderBy ? { orderBy: block.orderBy } : {}),
+  limit: block.limit ?? DEFAULT_RELATED_LIMIT,
+  columns: rowFields(block).map(field => ({ field, header: field, width: 1 })),
+});

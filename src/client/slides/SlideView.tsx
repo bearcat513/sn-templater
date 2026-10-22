@@ -25,6 +25,7 @@ import {
     type PdfStyle,
     type PdfTemplate,
 } from '../engine/template'
+import { expandBlocks } from '../engine/expand'
 import { fillTokens } from '../engine/tokens'
 import { ChartSvg } from './Chart'
 import { FONT_STACKS, FreeformContent } from './Freeform'
@@ -148,30 +149,30 @@ export function SlideView({ template: deckTemplate, slide, width, className, edi
                         />
                     </div>
                 ) : (
-                <div
-                    className="tp-sheet__content"
-                    style={{
-                        top: page.margins.top,
-                        left: page.margins.left,
-                        width: sheet.width - page.margins.left - page.margins.right,
-                        height: contentHeight,
-                    }}
-                >
-                    <div ref={content} className="tp-sheet__flow">
-                        {slide.blocks.map((block, index) => (
-                            <Block
-                                key={index}
-                                block={block}
-                                page={page}
-                                style={style}
-                                fill={fill}
-                                slide={slide}
-                                contentWidth={sheet.width - page.margins.left - page.margins.right}
-                                interactive={interactive}
-                            />
-                        ))}
+                    <div
+                        className="tp-sheet__content"
+                        style={{
+                            top: page.margins.top,
+                            left: page.margins.left,
+                            width: sheet.width - page.margins.left - page.margins.right,
+                            height: contentHeight,
+                        }}
+                    >
+                        <div ref={content} className="tp-sheet__flow">
+                            {expandBlocks(slide.blocks, slide.values, slide.related).map((block, index) => (
+                                <Block
+                                    key={index}
+                                    block={block}
+                                    page={page}
+                                    style={style}
+                                    fill={fill}
+                                    slide={slide}
+                                    contentWidth={sheet.width - page.margins.left - page.margins.right}
+                                    interactive={interactive}
+                                />
+                            ))}
+                        </div>
                     </div>
-                </div>
                 )}
 
                 {(footer || showNumbers) && (
@@ -513,7 +514,14 @@ function Block({ block, page, style, fill, slide, contentWidth, interactive }: B
             const sysId = slide.values[`raw.${block.field}`] ?? ''
             if (!sysId.trim()) {
                 return block.emptyText ? (
-                    <div style={{ fontSize: page.fontSize - 0.5, fontStyle: 'italic', color: page.mutedColor, marginBottom: 6 }}>
+                    <div
+                        style={{
+                            fontSize: page.fontSize - 0.5,
+                            fontStyle: 'italic',
+                            color: page.mutedColor,
+                            marginBottom: 6,
+                        }}
+                    >
                         {fill(block.emptyText)}
                     </div>
                 ) : null
@@ -521,7 +529,10 @@ function Block({ block, page, style, fill, slide, contentWidth, interactive }: B
             const accent = block.color ?? page.accentColor
             const url = referenceLink(block, slide.values)
             const title = block.title ? fill(block.title) : ''
-            const rows = block.rows.map(row => ({ label: fill(row.label), value: fill(referenceToken(block, row.field)) }))
+            const rows = block.rows.map(row => ({
+                label: fill(row.label),
+                value: fill(referenceToken(block, row.field)),
+            }))
             const card = block.layout !== 'plain'
             const labelWidth = card
                 ? Math.min(140, (contentWidth - CARD_EDGE - CARD_PADDING * 2) * 0.38)
@@ -568,7 +579,10 @@ function Block({ block, page, style, fill, slide, contentWidth, interactive }: B
                                 minHeight: card ? undefined : page.fontSize * 1.5,
                             }}
                         >
-                            <div className="tp-sheet__text" style={{ color: page.mutedColor, lineHeight: style.lineHeight, paddingRight: 6 }}>
+                            <div
+                                className="tp-sheet__text"
+                                style={{ color: page.mutedColor, lineHeight: style.lineHeight, paddingRight: 6 }}
+                            >
                                 {row.label}
                             </div>
                             <div className="tp-sheet__text" style={{ lineHeight: style.lineHeight }}>
@@ -622,7 +636,10 @@ function Block({ block, page, style, fill, slide, contentWidth, interactive }: B
                             }}
                         >
                             {gutter > 0 && (
-                                <span className="tp-sheet__code-number" style={{ color: page.mutedColor, width: `${(gutter - 2) * 0.6}em` }}>
+                                <span
+                                    className="tp-sheet__code-number"
+                                    style={{ color: page.mutedColor, width: `${(gutter - 2) * 0.6}em` }}
+                                >
                                     {index + 1}
                                 </span>
                             )}
@@ -674,7 +691,10 @@ function Block({ block, page, style, fill, slide, contentWidth, interactive }: B
                     }}
                 >
                     {title && (
-                        <div className="tp-sheet__text" style={{ fontWeight: 700, color: colors.color, marginBottom: body.trim() ? 2 : 0 }}>
+                        <div
+                            className="tp-sheet__text"
+                            style={{ fontWeight: 700, color: colors.color, marginBottom: body.trim() ? 2 : 0 }}
+                        >
                             {title}
                         </div>
                     )}
@@ -692,12 +712,20 @@ function Block({ block, page, style, fill, slide, contentWidth, interactive }: B
             if (!entries.length) return null
             const indent = listIndent(block.style, size, entries.length)
             return (
-                <div style={{ fontSize: size, lineHeight: style.lineHeight, marginBottom: block.spaceAfter ?? style.paragraphSpacing }}>
+                <div
+                    style={{
+                        fontSize: size,
+                        lineHeight: style.lineHeight,
+                        marginBottom: block.spaceAfter ?? style.paragraphSpacing,
+                    }}
+                >
                     {entries.map((entry, index) => (
                         <div key={index} style={{ display: 'flex', marginBottom: size * 0.25 }}>
                             <span style={{ flex: `0 0 ${indent}px`, position: 'relative' }} aria-hidden="true">
                                 {block.style === 'number' ? (
-                                    <span style={{ position: 'absolute', right: size * 0.45, color: page.mutedColor }}>{index + 1}.</span>
+                                    <span style={{ position: 'absolute', right: size * 0.45, color: page.mutedColor }}>
+                                        {index + 1}.
+                                    </span>
                                 ) : block.style === 'check' ? (
                                     <span
                                         className="tp-sheet__check"
@@ -711,7 +739,9 @@ function Block({ block, page, style, fill, slide, contentWidth, interactive }: B
                                         }}
                                     />
                                 ) : (
-                                    <span style={{ position: 'absolute', left: size * 0.15, color: page.accentColor }}>•</span>
+                                    <span style={{ position: 'absolute', left: size * 0.15, color: page.accentColor }}>
+                                        •
+                                    </span>
                                 )}
                             </span>
                             <span className="tp-sheet__text" style={{ flex: 1, minWidth: 0 }}>
@@ -730,7 +760,10 @@ function Block({ block, page, style, fill, slide, contentWidth, interactive }: B
             if (!block.rows.length && !headers.some(header => header.trim())) return null
             const zebra = block.zebra ?? table.zebra
             return (
-                <table className="tp-sheet__table" style={{ fontSize: block.fontSize ?? page.fontSize - 0.5, marginBottom: 8 }}>
+                <table
+                    className="tp-sheet__table"
+                    style={{ fontSize: block.fontSize ?? page.fontSize - 0.5, marginBottom: 8 }}
+                >
                     <colgroup>
                         {block.columns.map((column, index) => (
                             <col key={index} style={{ width: `${(Math.max(0, column.width) / total) * 100}%` }} />
@@ -738,7 +771,12 @@ function Block({ block, page, style, fill, slide, contentWidth, interactive }: B
                     </colgroup>
                     {headers.some(header => header.trim()) && (
                         <thead>
-                            <tr style={{ background: block.headerFill ?? table.headerFill, borderBottom: '0.75px solid #a1a1aa' }}>
+                            <tr
+                                style={{
+                                    background: block.headerFill ?? table.headerFill,
+                                    borderBottom: '0.75px solid #a1a1aa',
+                                }}
+                            >
                                 {block.columns.map((column, index) => (
                                     <th
                                         key={index}
@@ -764,7 +802,14 @@ function Block({ block, page, style, fill, slide, contentWidth, interactive }: B
                                 }}
                             >
                                 {block.columns.map((column, index) => (
-                                    <td key={index} style={{ padding: table.cellPadding, textAlign: column.align ?? 'left', whiteSpace: 'pre-wrap' }}>
+                                    <td
+                                        key={index}
+                                        style={{
+                                            padding: table.cellPadding,
+                                            textAlign: column.align ?? 'left',
+                                            whiteSpace: 'pre-wrap',
+                                        }}
+                                    >
                                         {fill(row[index] ?? '')}
                                     </td>
                                 ))}
@@ -776,7 +821,16 @@ function Block({ block, page, style, fill, slide, contentWidth, interactive }: B
         }
 
         case 'chart':
-            return <ChartBlockView block={block} page={page} style={style} fill={fill} slide={slide} contentWidth={contentWidth} />
+            return (
+                <ChartBlockView
+                    block={block}
+                    page={page}
+                    style={style}
+                    fill={fill}
+                    slide={slide}
+                    contentWidth={contentWidth}
+                />
+            )
 
         case 'pageBreak':
             return null

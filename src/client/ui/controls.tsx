@@ -65,18 +65,21 @@ export function IconButton({ icon, label, size = 'md', tone = 'default', classNa
 export function Field({
     label,
     hint,
+    error,
     children,
     className,
     htmlFor,
 }: {
     label?: React.ReactNode
     hint?: React.ReactNode
+    /** What is wrong with the value, announced as it appears. */
+    error?: React.ReactNode
     children: React.ReactNode
     className?: string
     htmlFor?: string
 }) {
     return (
-        <div className={cx('tp-field', className)}>
+        <div className={cx('tp-field', error ? 'has-error' : undefined, className)}>
             {label ? (
                 <label className="tp-field__label" htmlFor={htmlFor}>
                     {label}
@@ -84,6 +87,11 @@ export function Field({
             ) : null}
             {children}
             {hint ? <p className="tp-field__hint">{hint}</p> : null}
+            {error ? (
+                <p className="tp-field__error" role="alert">
+                    {error}
+                </p>
+            ) : null}
         </div>
     )
 }

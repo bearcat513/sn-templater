@@ -49,7 +49,8 @@ export const AggregateService = {
         try {
             return await viaStats(request)
         } catch (failure) {
-            if (failure instanceof HttpError && (failure.status === 403 || failure.status === 400)) return viaRows(request)
+            if (failure instanceof HttpError && (failure.status === 403 || failure.status === 400))
+                return viaRows(request)
             throw failure
         }
     },
@@ -105,7 +106,12 @@ async function viaStats({ table, query: encoded, groupBy, thenBy, measure, field
             return String(by?.display_value ?? by?.value ?? '').trim() || EMPTY
         }
         const figure = measured ? Number((stats[measure] as Record<string, string> | undefined)?.[measured]) : count
-        return { label: named(groupBy, 0), ...(thenBy ? { to: named(thenBy, 1) } : {}), value: Number.isFinite(figure) ? figure : 0, count }
+        return {
+            label: named(groupBy, 0),
+            ...(thenBy ? { to: named(thenBy, 1) } : {}),
+            value: Number.isFinite(figure) ? figure : 0,
+            count,
+        }
     })
     return { groups: merge(groups, measure), total }
 }
@@ -113,7 +119,8 @@ async function viaStats({ table, query: encoded, groupBy, thenBy, measure, field
 /** The display value and stored value of one field of a row. */
 const both = (row: ApiRecord, name: string): { value: string; display: string } => {
     const cell = row[name]
-    if (cell && typeof cell === 'object') return { value: String(cell.value ?? ''), display: String(cell.display_value ?? cell.value ?? '') }
+    if (cell && typeof cell === 'object')
+        return { value: String(cell.value ?? ''), display: String(cell.display_value ?? cell.value ?? '') }
     return { value: String(cell ?? ''), display: String(cell ?? '') }
 }
 

@@ -21,7 +21,7 @@ export default async ({ rootDir, config, fs, path, logger, credential }) => {
     })
 
     return new Promise((resolve, reject) => {
-        watcher.on('event', (event) => {
+        watcher.on('event', event => {
             if (event.error) {
                 reject(event.error)
             } else if (event.result) {

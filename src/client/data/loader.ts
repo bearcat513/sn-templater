@@ -109,7 +109,11 @@ async function loadRelated(block: RelatedListBlock, parentId: string): Promise<R
             displayValue: 'all',
         })
         if (records.length && !(block.field in records[0]!)) {
-            return { rows: [], total: 0, error: `${block.table} has no readable field “${block.field}” to link it to this record` }
+            return {
+                rows: [],
+                total: 0,
+                error: `${block.table} has no readable field “${block.field}” to link it to this record`,
+            }
         }
         const linked = records.filter(record => storedValue(record[block.field]) === parentId)
         // Anything left over did not belong to this record; the count would be wrong too.
@@ -203,7 +207,12 @@ export async function loadRecords(options: LoadOptions): Promise<LoadResult> {
         CONCURRENCY,
         async ({ source, block, parentId }) => {
             const rows = await loadRelated(block, parentId)
-            if (rows.error) log.warn('loader', `Related list ${block.table}.${block.field} on ${source.label}: ${rows.error}`, block)
+            if (rows.error)
+                log.warn(
+                    'loader',
+                    `Related list ${block.table}.${block.field} on ${source.label}: ${rows.error}`,
+                    block
+                )
             source.related[relatedKey(block)] = rows
             options.onProgress?.(++finished, jobs.length)
         },
@@ -251,7 +260,10 @@ export function specimenJob(
             Object.fromEntries(
                 block.columns.flatMap((column, index) => [
                     [column.field, `‹${column.header || column.field}› ${n}`],
-                    [`raw.${column.field}`, new Date(Date.UTC(2026, 0, 5) + (n * 9 + index * 12) * day).toISOString().slice(0, 10)],
+                    [
+                        `raw.${column.field}`,
+                        new Date(Date.UTC(2026, 0, 5) + (n * 9 + index * 12) * day).toISOString().slice(0, 10),
+                    ],
                 ])
             )
         )

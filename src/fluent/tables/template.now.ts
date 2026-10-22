@@ -16,8 +16,18 @@ import {
  * that `query` matches, and is placed in the others by sys_id.
  *
  * The body is one large text column rather than a JSON column: it is the
- * canonical JSON the editor writes, and it carries its own pictures (a logo is
- * a data: URL inside it), which is why it is allowed to be large.
+ * canonical JSON the editor writes. Its pictures are attachments on the
+ * record, named in the body by their content (`attachment:templater-….png`);
+ * a body written before that carries them as data: URLs, which is why it is
+ * still allowed to be large.
+ *
+ * ## Drafts and versions
+ *
+ * `body` is what is *published*: what exports, decks and presentations use.
+ * The designer saves to `draft_body`, and publishing moves the draft into
+ * `body`. Every change to `body` is numbered (`version`) and kept as a row of
+ * x_1040823_template_version by a business rule, so a published template can
+ * be compared with and restored from what it was.
  */
 export const x_1040823_template_template = Table({
     name: 'x_1040823_template_template',
@@ -58,7 +68,28 @@ export const x_1040823_template_template = Table({
         body: StringColumn({
             label: 'Body',
             maxLength: 3000000,
-            hint: 'The template as JSON. Edit it in the Templater designer.',
+            hint: 'The published template, as JSON. Edit it in the Templater designer.',
+        }),
+        draft_body: StringColumn({
+            label: 'Draft body',
+            maxLength: 3000000,
+            hint: 'Changes saved in the designer and not yet published. Empty when there are none.',
+        }),
+        has_draft: BooleanColumn({
+            label: 'Has unpublished changes',
+            default: false,
+            readOnly: true,
+        }),
+        version: IntegerColumn({
+            label: 'Version',
+            default: 0,
+            readOnly: true,
+            hint: 'Counts the times the body has been published.',
+        }),
+        publish_note: StringColumn({
+            label: 'Publish note',
+            maxLength: 1000,
+            hint: 'Set with a publish; copied to the version it makes and then cleared.',
         }),
     },
 })

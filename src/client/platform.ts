@@ -35,7 +35,8 @@ if (replaced) {
             for (let index = 0; index < length; index++) values[index] = (source as Record<number, unknown>)[index]
         }
         // A plain loop: Prototype replaces `map` as well.
-        if (map) for (let index = 0; index < values.length; index++) values[index] = map.call(thisArg, values[index], index)
+        if (map)
+            for (let index = 0; index < values.length; index++) values[index] = map.call(thisArg, values[index], index)
         return values
     }
     Object.defineProperty(Array, 'from', { value: standardFrom, writable: true, configurable: true })

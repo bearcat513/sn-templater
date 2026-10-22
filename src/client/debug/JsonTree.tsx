@@ -127,7 +127,12 @@ function entriesOf(value: object): [string, unknown][] {
     if (value instanceof Map) return [...value.entries()].map(([key, child]) => [String(key), child])
     if (value instanceof Set) return [...value.values()].map((child, index) => [String(index), child])
     if (ArrayBuffer.isView(value)) return []
-    if (value instanceof Error) return [['name', value.name], ['message', value.message], ['stack', value.stack]]
+    if (value instanceof Error)
+        return [
+            ['name', value.name],
+            ['message', value.message],
+            ['stack', value.stack],
+        ]
     if (Array.isArray(value)) return value.map((child, index) => [String(index), child])
     return Object.entries(value)
 }

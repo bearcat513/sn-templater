@@ -1,0 +1,125 @@
+/**
+ * Pictures kept as attachments.
+ *
+ * A body used to carry its pictures inside it as `data:` URLs, which made
+ * every read of a template carry every logo, and every save resend them. Now
+ * a picture is an attachment on the template or presentation it belongs to,
+ * named by a hash of its content, and the body names it:
+ * `attachment:templater-3f9a….png`.
+ *
+ * The editors and renderers still work in `data:` URLs — a PDF needs the
+ * bytes, synchronously — so a body is *opened* by swapping each reference for
+ * its picture (`openPictures`) and *saved* by uploading any picture the record
+ * does not have yet and swapping it back for a reference (`storePictures`).
+ * The same picture twice is one attachment; an unchanged picture is never
+ * uploaded again. A body with `data:` URLs in it still opens as it is, and
+ * moves its pictures into attachments the next time it is saved.
+ *
+ * Attachments are never deleted here: a template's earlier versions name
+ * the pictures they had, and restoring one should find them.
+ */
+import { PICTURE_REF, isPictureRef } from '../engine/image'
+import { AttachmentService } from '../services/attachments'
+import { log } from '../debug/log'
+
+const PREFIX = 'templater-'
+
+/** Opened pictures, by record and name: a picture does not change under its name. */
+const cache = new Map<string, Promise<string | null>>()
+
+const DATA_URL = /^data:(image\/(?:png|jpeg));base64,([A-Za-z0-9+/=\s]+)$/
+
+function toBase64(bytes: Uint8Array): string {
+    let binary = ''
+    for (let at = 0; at < bytes.length; at += 0x8000) binary += String.fromCharCode(...bytes.subarray(at, at + 0x8000))
+    return btoa(binary)
+}
+
+const fromBase64 = (text: string): Uint8Array =>
+    Uint8Array.from(atob(text.replace(/\s+/g, '')), char => char.charCodeAt(0))
+
+async function hashOf(text: string): Promise<string> {
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text))
+    return [...new Uint8Array(digest)]
+        .slice(0, 12)
+        .map(byte => byte.toString(16).padStart(2, '0'))
+        .join('')
+}
+
+/** Every string in a body, rewritten — the body's shape is not this file's business. */
+async function rewrite<T>(value: T, change: (text: string) => Promise<string>): Promise<T> {
+    if (typeof value === 'string') return (await change(value)) as T
+    if (Array.isArray(value)) return (await Promise.all(value.map(item => rewrite(item, change)))) as T
+    if (value && typeof value === 'object') {
+        const entries = await Promise.all(
+            Object.entries(value as Record<string, unknown>).map(async ([key, item]) => [
+                key,
+                await rewrite(item, change),
+            ])
+        )
+        return Object.fromEntries(entries) as T
+    }
+    return value
+}
+
+/**
+ * A body with its pictures in it: each attachment reference swapped for the
+ * picture as a `data:` URL. A picture that cannot be read stays a reference,
+ * which the renderer reports as a picture it could not draw.
+ */
+export async function openPictures<T>(body: T, table: string, sysId: string): Promise<T> {
+    if (!sysId || !JSON.stringify(body).includes('"attachment:')) return body
+    const files = AttachmentService.list(table, sysId, PREFIX).then(
+        list => new Map(list.map(file => [file.fileName, file]))
+    )
+    return rewrite(body, async text => {
+        const name = PICTURE_REF.exec(text)?.[1]
+        if (!name) return text
+        const key = `${sysId}/${name}`
+        let picture = cache.get(key)
+        if (!picture) {
+            picture = files
+                .then(async found => {
+                    const file = found.get(name)
+                    if (!file) return null
+                    const type = name.endsWith('.png') ? 'image/png' : 'image/jpeg'
+                    return `data:${type};base64,${toBase64(await AttachmentService.file(file.sysId))}`
+                })
+                .catch(failure => {
+                    log.warn('pictures', `Could not read ${name}`, failure)
+                    cache.delete(key)
+                    return null
+                })
+            cache.set(key, picture)
+        }
+        return (await picture) ?? text
+    })
+}
+
+/**
+ * A body ready to save: each `data:` URL picture uploaded to the record —
+ * unless it already has it — and swapped for a reference to it.
+ */
+export async function storePictures<T>(body: T, table: string, sysId: string): Promise<T> {
+    if (!JSON.stringify(body).includes('"data:image/')) return body
+    const existing = AttachmentService.list(table, sysId, PREFIX).then(list => new Set(list.map(file => file.fileName)))
+    const uploads = new Map<string, Promise<void>>()
+    return rewrite(body, async text => {
+        const match = DATA_URL.exec(text)
+        if (!match || isPictureRef(text)) return text
+        const [, type, data] = match
+        const name = `${PREFIX}${await hashOf(text)}.${type === 'image/png' ? 'png' : 'jpg'}`
+        let upload = uploads.get(name)
+        if (!upload) {
+            upload = existing.then(async names => {
+                if (names.has(name)) return
+                await AttachmentService.upload(table, sysId, name, fromBase64(data!), type!)
+                log.info('pictures', `Stored ${name} on ${table}/${sysId}`)
+            })
+            uploads.set(name, upload)
+        }
+        await upload
+        cache.set(`${sysId}/${name}`, Promise.resolve(text))
+        return `attachment:${name}`
+    })
+}

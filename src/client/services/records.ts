@@ -1,5 +1,5 @@
 import type { ApiField } from '../engine/vocabulary'
-import { andQuery, getJson, getList, orderClause, query, request } from './http'
+import { andQuery, getJson, getList, orderClause, query } from './http'
 
 export type ApiRecord = Record<string, ApiField>
 
@@ -102,18 +102,6 @@ export const RecordService = {
         const label = displayField ? display(record[displayField]) : ''
         const number = hasNumber && displayField !== 'number' ? display(record.number) : ''
         return { sysId, label: [number, label].filter(Boolean).join(' · ') || sysId, detail: '' }
-    },
-
-    /** Attaches a file to a record, as the signed-in user. */
-    async attach(table: string, sysId: string, fileName: string, bytes: Uint8Array, contentType: string): Promise<void> {
-        await request(
-            `/api/now/attachment/file?${query({ table_name: table, table_sys_id: sysId, file_name: fileName })}`,
-            {
-                method: 'POST',
-                headers: { 'Content-Type': contentType },
-                body: new Blob([bytes as unknown as BlobPart], { type: contentType }),
-            }
-        )
     },
 }
 

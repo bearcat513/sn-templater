@@ -1,0 +1,315 @@
+/*
+ * Template list thumbnails and groups, version history, chart usages, the
+ * problems panel, export progress, and the narrow-window notice.
+ */
+
+/* ----------------------------------------------------------- thumbnails */
+
+.tp-thumbnail {
+    height: 7.75rem;
+    max-width: 100%;
+    overflow: hidden;
+    border-radius: var(--tp-radius);
+    border: 1px solid var(--tp-border);
+    background: var(--tp-canvas);
+    margin-bottom: var(--tp-space-2);
+    pointer-events: none;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+}
+
+.tp-thumbnail__icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 3rem;
+    height: 3rem;
+    margin: auto;
+    border-radius: 12px;
+}
+
+.tp-template-group + .tp-template-group {
+    margin-top: var(--tp-space-6);
+}
+
+.tp-template-group__title {
+    display: flex;
+    align-items: baseline;
+    gap: var(--tp-space-2);
+    font-size: 1rem;
+    margin: 0 0 var(--tp-space-3);
+}
+
+/* -------------------------------------------------------------- history */
+
+.tp-history__layout {
+    display: grid;
+    grid-template-columns: minmax(14rem, 18rem) 1fr;
+    gap: var(--tp-space-4);
+    align-items: start;
+}
+
+.tp-history__list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--tp-space-1);
+}
+
+.tp-history__item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    width: 100%;
+    text-align: left;
+    padding: var(--tp-space-2) var(--tp-space-3);
+    border: 1px solid transparent;
+    border-radius: var(--tp-radius);
+    background: none;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+}
+
+.tp-history__item:hover {
+    background: var(--tp-surface-hover);
+}
+
+.tp-history__item.is-active {
+    background: var(--tp-surface-selected);
+    border-color: var(--tp-border);
+}
+
+.tp-history__note {
+    color: var(--tp-text-muted);
+    font-size: 0.8125rem;
+}
+
+.tp-history__changes,
+.tp-usages,
+.tp-problems__list {
+    margin: 0;
+    padding-left: 1.1rem;
+    display: flex;
+    flex-direction: column;
+    gap: var(--tp-space-1);
+}
+
+/* ------------------------------------------------------------- problems */
+
+.tp-problems {
+    border: 1px solid var(--tp-warning-border);
+    background: var(--tp-warning-bg);
+    border-radius: var(--tp-radius);
+}
+
+.tp-problems > summary {
+    display: flex;
+    align-items: center;
+    gap: var(--tp-space-2);
+    padding: var(--tp-space-2) var(--tp-space-3);
+    cursor: pointer;
+    font-weight: 600;
+    color: var(--tp-warning);
+}
+
+.tp-problems__body {
+    padding: 0 var(--tp-space-3) var(--tp-space-3);
+    display: flex;
+    flex-direction: column;
+    gap: var(--tp-space-2);
+}
+
+.tp-problems__group h4 {
+    margin: 0 0 var(--tp-space-1);
+    font-size: 0.8125rem;
+}
+
+/* ------------------------------------------------------------- progress */
+
+.tp-progress {
+    display: flex;
+    flex-direction: column;
+    gap: var(--tp-space-2);
+}
+
+.tp-progress__bar {
+    height: 6px;
+    border-radius: 3px;
+    background: var(--tp-surface-sunken);
+    overflow: hidden;
+}
+
+.tp-progress__fill {
+    height: 100%;
+    background: var(--tp-primary);
+    transition: width 200ms var(--tp-ease);
+}
+
+.tp-progress__bar--indeterminate .tp-progress__fill {
+    width: 30%;
+    animation: tp-progress-slide 1.2s var(--tp-ease) infinite;
+}
+
+@keyframes tp-progress-slide {
+    from {
+        transform: translateX(-100%);
+    }
+    to {
+        transform: translateX(340%);
+    }
+}
+
+/* --------------------------------------------------------- narrow notice */
+
+/*
+ * The slide builder needs about 1100px and the designer about 900px. Below
+ * that they are hidden, rather than squeezed, and a notice says what still
+ * works on a small screen.
+ */
+.tp-narrow-notice {
+    display: none;
+    margin: var(--tp-space-3);
+}
+
+@media (max-width: 1100px) {
+    .tp-narrow-notice--builder {
+        display: block;
+    }
+
+    .tp-wide-only--builder {
+        display: none !important;
+    }
+}
+
+@media (max-width: 900px) {
+    .tp-narrow-notice--designer {
+        display: block;
+    }
+
+    .tp-wide-only--designer {
+        display: none !important;
+    }
+
+    .tp-history__layout {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* -------------------------------------------------------- accessibility */
+
+/* Focus is always visible from the keyboard, whatever a component does with its outline. */
+:focus-visible {
+    outline: 2px solid var(--tp-focus);
+    outline-offset: 2px;
+}
+
+.tp-canvas-element:focus-visible {
+    outline: 2px solid var(--tp-focus);
+    outline-offset: 1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .tp-progress__bar--indeterminate .tp-progress__fill {
+        animation: none;
+        width: 100%;
+        opacity: 0.4;
+    }
+}
+
+.tp-field__error {
+    margin: 0;
+    color: var(--tp-critical);
+    font-size: 0.8125rem;
+}
+
+/* -------------------------------------------------------- getting started */
+
+.tp-guide {
+    border: 1px solid var(--tp-info-border);
+    background: var(--tp-info-bg);
+    border-radius: var(--tp-radius);
+    padding: var(--tp-space-3);
+    display: flex;
+    flex-direction: column;
+    gap: var(--tp-space-2);
+    margin-bottom: var(--tp-space-3);
+}
+
+.tp-guide__title {
+    display: flex;
+    align-items: center;
+    gap: var(--tp-space-2);
+    margin: 0;
+    font-size: 0.9375rem;
+}
+
+.tp-guide__steps {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--tp-space-1);
+    font-size: 0.8125rem;
+}
+
+.tp-guide__step {
+    display: flex;
+    gap: var(--tp-space-2);
+    align-items: flex-start;
+}
+
+.tp-guide__check {
+    flex-shrink: 0;
+    width: 1rem;
+    height: 1rem;
+    margin-top: 1px;
+    border-radius: 50%;
+    border: 1.5px solid var(--tp-border-strong);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.tp-guide__step.is-done .tp-guide__check {
+    background: var(--tp-positive);
+    border-color: var(--tp-positive);
+    color: #fff;
+}
+
+.tp-guide__step.is-done strong {
+    text-decoration: line-through;
+    color: var(--tp-text-muted);
+}
+
+.tp-tokens__examples > summary {
+    cursor: pointer;
+}
+
+.tp-tokens__formatters {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 0.75rem;
+}
+
+.tp-condition {
+    margin-top: var(--tp-space-3);
+    padding-top: var(--tp-space-3);
+    border-top: 1px dashed var(--tp-border);
+}
+
+/* A wrapper that passes the editor's height on to what is inside it. */
+.tp-grow-column {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}

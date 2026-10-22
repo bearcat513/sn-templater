@@ -1,18 +1,62 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
+import { storePictures } from '../data/pictures'
 import { useSession } from '../data/session'
+import { openTemplate } from '../data/templates'
+import { UsageList } from '../designer/PublishModal'
 import { galleryFor, GALLERY, type GalleryTemplate } from '../engine/gallery'
 import { TEMPLATE_KIND_LABELS, starterChart, starterTemplate, type TemplateKind } from '../engine/template'
 import { serializeChartTemplate, serializeTemplate } from '../engine/validate'
 import { useAsync } from '../hooks/useAsync'
 import type { Navigate } from '../hooks/useRoute'
 import { SchemaService } from '../services/schema'
-import { TemplateService, type TemplateRecord } from '../services/templates'
+import { TEMPLATE_TABLE, TemplateService, type TemplateRecord } from '../services/templates'
 import { Icon } from '../ui/icons'
-import { Badge, Button, EmptyState, Field, Input, Notice, Segmented, Spinner, Switch, Textarea, cx } from '../ui/controls'
+import {
+    Badge,
+    Button,
+    EmptyState,
+    Field,
+    Input,
+    Notice,
+    Segmented,
+    Select,
+    Spinner,
+    Switch,
+    Textarea,
+    cx,
+} from '../ui/controls'
 import { ConfirmModal, Menu, Modal, useToast } from '../ui/overlays'
 import { KIND_ICONS, TablePicker } from './common'
+import { TemplateThumbnail } from './TemplateThumbnail'
+
+/** The list's sort and grouping, remembered in this browser. */
+const readPreference = (name: string, fallback: string): string => {
+    try {
+        return window.localStorage.getItem(`templater:templates:${name}`) ?? fallback
+    } catch {
+        return fallback
+    }
+}
+
+const writePreference = (name: string, value: string) => {
+    try {
+        window.localStorage.setItem(`templater:templates:${name}`, value)
+    } catch {
+        // Not remembered, which is fine.
+    }
+}
 
 type Filter = 'all' | TemplateKind
+
+type Sort = 'name' | 'updated' | 'table'
+
+const SORTS: { value: Sort; label: string }[] = [
+    { value: 'name', label: 'Name' },
+    { value: 'updated', label: 'Recently changed' },
+    { value: 'table', label: 'Table' },
+]
+
+const THUMBNAIL_WIDTH = 220
 
 /** Every template, by kind, with the way into designing, exporting and presenting. */
 export function TemplatesView({ navigate }: { navigate: Navigate }) {
@@ -24,10 +68,20 @@ export function TemplatesView({ navigate }: { navigate: Navigate }) {
     const [showInactive, setShowInactive] = useState(false)
     const [creating, setCreating] = useState<TemplateKind | null>(null)
     const [deleting, setDeleting] = useState<TemplateRecord | null>(null)
+    const [sort, setSort] = useState<Sort>(() => readPreference('sort', 'name') as Sort)
+    const [grouped, setGrouped] = useState(() => readPreference('grouped', '') === 'true')
+    const deletingUsages = useAsync(
+        () => TemplateService.chartUsages(deleting!.sysId),
+        [deleting?.sysId],
+        deleting?.kind === 'chart'
+    )
+
+    useEffect(() => writePreference('sort', sort), [sort])
+    useEffect(() => writePreference('grouped', String(grouped)), [grouped])
 
     const shown = useMemo(() => {
         const needle = term.trim().toLowerCase()
-        return (templates.data ?? []).filter(
+        const matching = (templates.data ?? []).filter(
             template =>
                 (filter === 'all' || template.kind === filter) &&
                 (showInactive || template.active) &&
@@ -37,11 +91,37 @@ export function TemplatesView({ navigate }: { navigate: Navigate }) {
                     template.tableLabel.toLowerCase().includes(needle) ||
                     template.description.toLowerCase().includes(needle))
         )
-    }, [templates.data, term, filter, showInactive])
+        const byName = (a: TemplateRecord, b: TemplateRecord) => a.name.localeCompare(b.name)
+        return [...matching].sort(
+            sort === 'updated'
+                ? (a, b) => b.updatedAt.localeCompare(a.updatedAt) || byName(a, b)
+                : sort === 'table'
+                  ? (a, b) => (a.tableLabel || a.table).localeCompare(b.tableLabel || b.table) || byName(a, b)
+                  : byName
+        )
+    }, [templates.data, term, filter, showInactive, sort])
+
+    /** The templates in groups — one per table when grouping is on, else one group of all. */
+    const groups = useMemo(() => {
+        if (!grouped) return [{ key: '', label: '', items: shown }]
+        const byTable = new Map<string, { key: string; label: string; items: TemplateRecord[] }>()
+        for (const template of shown) {
+            const group = byTable.get(template.table) ?? {
+                key: template.table,
+                label: template.tableLabel || template.table,
+                items: [],
+            }
+            group.items.push(template)
+            byTable.set(template.table, group)
+        }
+        return [...byTable.values()].sort((a, b) => a.label.localeCompare(b.label))
+    }, [shown, grouped])
 
     const duplicate = async (template: TemplateRecord) => {
         try {
             const full = await TemplateService.get(template.sysId)
+            // The copy gets the pictures as attachments of its own: they go when the original goes.
+            const read = full.kind === 'chart' ? null : await openTemplate(full, [])
             const copy = await TemplateService.create({
                 name: `${template.name} (copy)`.slice(0, 100),
                 kind: full.kind,
@@ -51,8 +131,12 @@ export function TemplatesView({ navigate }: { navigate: Navigate }) {
                 query: full.query,
                 orderBy: full.orderBy,
                 limit: full.limit,
-                body: full.body ?? '',
+                body: read?.ok ? '' : (full.body ?? ''),
             })
+            if (read?.ok) {
+                const stored = await storePictures(read.value, TEMPLATE_TABLE, copy.sysId)
+                await TemplateService.update(copy.sysId, { body: JSON.stringify(stored) })
+            }
             toast(`Made “${copy.name}”.`)
             navigate('edit', { id: copy.sysId })
         } catch (failure) {
@@ -77,8 +161,8 @@ export function TemplatesView({ navigate }: { navigate: Navigate }) {
                 <div>
                     <h1>Templates</h1>
                     <p className="tp-muted">
-                        A template turns records into a PDF — fields, related lists and all — or into a slide per record. A
-                        chart counts a table's records, to place in either or on a slide of its own.
+                        A template turns records into a PDF — fields, related lists and all — or into a slide per
+                        record. A chart counts a table's records, to place in either or on a slide of its own.
                     </p>
                 </div>
                 {session.canEdit && (
@@ -117,6 +201,8 @@ export function TemplatesView({ navigate }: { navigate: Navigate }) {
                         { value: 'chart', label: 'Charts', icon: 'chart' },
                     ]}
                 />
+                <Select<Sort> value={sort} options={SORTS} onChange={setSort} aria-label="Sort templates by" />
+                <Switch checked={grouped} onChange={setGrouped} label="Group by table" />
                 <Switch checked={showInactive} onChange={setShowInactive} label="Show inactive" />
             </div>
 
@@ -127,65 +213,119 @@ export function TemplatesView({ navigate }: { navigate: Navigate }) {
                     <Spinner /> Loading templates…
                 </div>
             ) : shown.length ? (
-                <ul className="tp-cards">
-                    {shown.map(template => (
-                        <li key={template.sysId} className={cx('tp-template-card', !template.active && 'is-inactive')}>
-                            <button
-                                type="button"
-                                className="tp-template-card__main"
-                                onClick={() =>
-                                    session.canEdit || template.kind === 'chart'
-                                        ? navigate('edit', { id: template.sysId })
-                                        : navigate(template.kind === 'deck' ? 'present' : 'export', { template: template.sysId })
-                                }
-                            >
-                                <span className={cx('tp-template-card__icon', `tp-kind--${template.kind}`)}>
-                                    <Icon name={KIND_ICONS[template.kind]} size={20} />
-                                </span>
-                                <span className="tp-template-card__name">{template.name}</span>
-                                <span className="tp-template-card__table">
-                                    {template.tableLabel || template.table} <code>{template.table}</code>
-                                </span>
-                                {template.description && <span className="tp-template-card__desc">{template.description}</span>}
-                                <span className="tp-template-card__meta">
-                                    <Badge tone={template.kind === 'deck' ? 'primary' : template.kind === 'chart' ? 'positive' : 'neutral'}>
-                                        {TEMPLATE_KIND_LABELS[template.kind]}
-                                    </Badge>
-                                    {!template.active && <Badge tone="warning">Inactive</Badge>}
-                                    <span className="tp-subtle tp-truncate">
-                                        {template.updatedBy} · {template.updatedOn}
-                                    </span>
-                                </span>
-                            </button>
-                            <div className="tp-template-card__actions">
-                                {template.kind === 'deck' ? (
-                                    <Button size="sm" icon="play" onClick={() => navigate('present', { template: template.sysId })}>
-                                        Present
-                                    </Button>
-                                ) : null}
-                                {template.kind === 'chart' ? (
-                                    <Button size="sm" icon="eye" onClick={() => navigate('edit', { id: template.sysId })}>
-                                        Open
-                                    </Button>
-                                ) : (
-                                    <Button size="sm" icon="download" onClick={() => navigate('export', { template: template.sysId })}>
-                                        Export
-                                    </Button>
-                                )}
-                                {session.canEdit && (
-                                    <Menu
-                                        label={`More actions for ${template.name}`}
-                                        items={[
-                                            { label: 'Edit', icon: 'settings', onSelect: () => navigate('edit', { id: template.sysId }) },
-                                            { label: 'Duplicate', icon: 'copy', onSelect: () => void duplicate(template) },
-                                            { label: 'Delete', icon: 'trash', danger: true, onSelect: () => setDeleting(template) },
-                                        ]}
-                                    />
-                                )}
-                            </div>
-                        </li>
-                    ))}
-                </ul>
+                groups.map(group => (
+                    <section key={group.key} className="tp-template-group" aria-label={group.label || 'Templates'}>
+                        {group.label && (
+                            <h2 className="tp-template-group__title">
+                                {group.label} <code>{group.key}</code>{' '}
+                                <span className="tp-subtle">{group.items.length}</span>
+                            </h2>
+                        )}
+                        <ul className="tp-cards">
+                            {group.items.map(template => (
+                                <li
+                                    key={template.sysId}
+                                    className={cx('tp-template-card', !template.active && 'is-inactive')}
+                                >
+                                    <button
+                                        type="button"
+                                        className="tp-template-card__main"
+                                        onClick={() =>
+                                            session.canEdit || template.kind === 'chart'
+                                                ? navigate('edit', { id: template.sysId })
+                                                : navigate(template.kind === 'deck' ? 'present' : 'export', {
+                                                      template: template.sysId,
+                                                  })
+                                        }
+                                    >
+                                        <TemplateThumbnail
+                                            template={template}
+                                            icon={KIND_ICONS[template.kind]}
+                                            width={THUMBNAIL_WIDTH}
+                                        />
+                                        <span className="tp-template-card__name">{template.name}</span>
+                                        <span className="tp-template-card__table">
+                                            {template.tableLabel || template.table} <code>{template.table}</code>
+                                        </span>
+                                        {template.description && (
+                                            <span className="tp-template-card__desc">{template.description}</span>
+                                        )}
+                                        <span className="tp-template-card__meta">
+                                            <Badge
+                                                tone={
+                                                    template.kind === 'deck'
+                                                        ? 'primary'
+                                                        : template.kind === 'chart'
+                                                          ? 'positive'
+                                                          : 'neutral'
+                                                }
+                                            >
+                                                {TEMPLATE_KIND_LABELS[template.kind]}
+                                            </Badge>
+                                            {!template.active && <Badge tone="warning">Inactive</Badge>}
+                                            {template.hasDraft && <Badge tone="warning">Unpublished changes</Badge>}
+                                            {template.version > 0 && <Badge tone="outline">v{template.version}</Badge>}
+                                            <span className="tp-subtle tp-truncate">
+                                                {template.updatedBy} · {template.updatedOn}
+                                            </span>
+                                        </span>
+                                    </button>
+                                    <div className="tp-template-card__actions">
+                                        {template.kind === 'deck' ? (
+                                            <Button
+                                                size="sm"
+                                                icon="play"
+                                                onClick={() => navigate('present', { template: template.sysId })}
+                                            >
+                                                Present
+                                            </Button>
+                                        ) : null}
+                                        {template.kind === 'chart' ? (
+                                            <Button
+                                                size="sm"
+                                                icon="eye"
+                                                onClick={() => navigate('edit', { id: template.sysId })}
+                                            >
+                                                Open
+                                            </Button>
+                                        ) : (
+                                            <Button
+                                                size="sm"
+                                                icon="download"
+                                                onClick={() => navigate('export', { template: template.sysId })}
+                                            >
+                                                Export
+                                            </Button>
+                                        )}
+                                        {session.canEdit && (
+                                            <Menu
+                                                label={`More actions for ${template.name}`}
+                                                items={[
+                                                    {
+                                                        label: 'Edit',
+                                                        icon: 'settings',
+                                                        onSelect: () => navigate('edit', { id: template.sysId }),
+                                                    },
+                                                    {
+                                                        label: 'Duplicate',
+                                                        icon: 'copy',
+                                                        onSelect: () => void duplicate(template),
+                                                    },
+                                                    {
+                                                        label: 'Delete',
+                                                        icon: 'trash',
+                                                        danger: true,
+                                                        onSelect: () => setDeleting(template),
+                                                    },
+                                                ]}
+                                            />
+                                        )}
+                                    </div>
+                                </li>
+                            ))}
+                        </ul>
+                    </section>
+                ))
             ) : (
                 <EmptyState
                     icon="layers"
@@ -219,9 +359,25 @@ export function TemplatesView({ navigate }: { navigate: Navigate }) {
                 open={Boolean(deleting)}
                 title="Delete this template?"
                 message={
-                    <>
-                        “{deleting?.name}” will be gone for everyone. Documents already exported are not affected.
-                    </>
+                    <div className="tp-stack">
+                        <p>
+                            “{deleting?.name}” will be gone for everyone, with its version history. Documents already
+                            exported are not affected.
+                        </p>
+                        {deleting?.kind === 'chart' &&
+                            (deletingUsages.loading ? (
+                                <p className="tp-row tp-subtle">
+                                    <Spinner size={14} /> Looking for where it is placed…
+                                </p>
+                            ) : deletingUsages.data?.length ? (
+                                <Notice
+                                    kind="warning"
+                                    title={`It is placed in ${deletingUsages.data.length} other place${deletingUsages.data.length === 1 ? '' : 's'}, which will show nothing where it was`}
+                                >
+                                    <UsageList usages={deletingUsages.data} />
+                                </Notice>
+                            ) : null)}
+                    </div>
                 }
                 confirmLabel="Delete template"
                 danger
@@ -283,7 +439,11 @@ function NewTemplateModal({
         if (!entry) return
         setTable({ name: entry.table, label: '' })
         SchemaService.table(entry.table)
-            .then(schema => setTable(current => (current.name === entry.table ? { name: entry.table, label: schema.label } : current)))
+            .then(schema =>
+                setTable(current =>
+                    current.name === entry.table ? { name: entry.table, label: schema.label } : current
+                )
+            )
             .catch(() => undefined)
     }
 
@@ -297,9 +457,17 @@ function NewTemplateModal({
         try {
             const schema = await SchemaService.table(table.name)
             const defaults = starting
-                ? { query: starting.query, orderBy: starting.orderBy, limit: starting.limit, body: serializeTemplate(starting.body) }
+                ? {
+                      query: starting.query,
+                      orderBy: starting.orderBy,
+                      limit: starting.limit,
+                      body: serializeTemplate(starting.body),
+                  }
                 : {
-                      query: chosenKind !== 'document' && schema.fields.some(field => field.name === 'active') ? 'active=true' : '',
+                      query:
+                          chosenKind !== 'document' && schema.fields.some(field => field.name === 'active')
+                              ? 'active=true'
+                              : '',
                       orderBy: '-sys_updated_on',
                       limit: chosenKind === 'deck' ? 20 : 50,
                       body:
@@ -410,12 +578,20 @@ function NewTemplateModal({
                         maxLength={100}
                         onChange={event => setName(event.target.value)}
                         placeholder={
-                            chosenKind === 'deck' ? 'Weekly major incident review' : chosenKind === 'chart' ? 'Open incidents by priority' : 'Incident report'
+                            chosenKind === 'deck'
+                                ? 'Weekly major incident review'
+                                : chosenKind === 'chart'
+                                  ? 'Open incidents by priority'
+                                  : 'Incident report'
                         }
                         autoFocus
                     />
                 </Field>
-                <Field label="Table" hint="The records this template is for. Tables that extend it can use it too." htmlFor="new-template-table">
+                <Field
+                    label="Table"
+                    hint="The records this template is for. Tables that extend it can use it too."
+                    htmlFor="new-template-table"
+                >
                     <TablePicker
                         id="new-template-table"
                         value={table.name}

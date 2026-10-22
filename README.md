@@ -8,10 +8,13 @@ New here? Start with [Getting started](docs/getting-started.md), then [Generatin
 
 ## How it works
 
-- A **template** is a record on `x_1040823_template_template` with three parts:
+- A **template** is a record on `x_1040823_template_template` with these parts:
   - `kind`: `document`, `deck` or `chart`
   - `table`: the table it's for. Tables that extend it can use it too.
-  - `body`: the canonical JSON describing the document.
+  - `body`: the canonical JSON describing the document, as **published**. Exports, decks and presentations use this.
+  - `draft_body`: changes saved in the designer and not yet published.
+  - `version`: how many times it has been published.
+- **Pictures are attachments** of the template or presentation they belong to, named by a hash of their content (`templater-3f9a….png`). The body names them as `attachment:templater-3f9a….png`, and they are swapped back into the body when it is read. A body that still carries pictures as `data:` URLs works as before, and its pictures move into attachments the next time it is saved.
 - **Rendering happens in the browser.** The live preview and the downloaded file come from the same pure renderer (`src/client/engine/render.ts`), so the preview can't disagree with the file.
 - **Data is read with the viewer's own session** through the Table API (and the Aggregate API, for chart templates). A template can only show fields and related rows that its reader can already open.
 
@@ -31,9 +34,27 @@ New here? Start with [Getting started](docs/getting-started.md), then [Generatin
 
 A token that resolves to nothing renders blank, and the designer and the export screen both report it.
 
+#### Formatters
+
+A token can be followed by formatters, applied left to right: `{{record.opened_at | date:"d MMM yyyy"}}`, `{{record.short_description | truncate:60 | upper}}`. The first formatter on a `record.` token reads the field's stored value where that helps (a date's, a number's), so the result does not depend on the reader's display format.
+
+| Formatter | Does |
+| --- | --- |
+| `upper`, `lower`, `title`, `trim` | Change case, or trim spaces |
+| `default:"text"` | Prints `text` when the value is empty |
+| `truncate:60` | At most 60 characters, ending in `…` |
+| `date:"d MMM yyyy"` | A date in a pattern: `yyyy yy MMMM MMM MM M dd d EEEE EEE HH H hh h mm ss a`. Quote words: `'at'` |
+| `number`, `number:2` | Grouped, with that many decimals, in the reader's locale |
+| `duration` | A duration as `2d 4h 5m` |
+| `yesno:"On","Off"` | Two words for true and false |
+
+The token panel lists them all, with examples to click.
+
 ### Blocks
 
 Heading, text, field list, columns, **related list**, stats, image, signatures, divider, spacer, page break, and:
+
+- **Repeat:** blocks of your own, drawn once for each record that references this one, like a related list's rows. Inside, `{{row.<field>}}` is the row's display value, `{{row.raw.<field>}}` its stored value, and `{{row.index}}` and `{{row.count}}` its place among them. Put a page break inside, in a deck, for a slide per row. A repeat cannot hold another repeat.
 
 - **Reference record:** the fields of a record that one of this record's reference fields points at (the caller, the assignment group, the CI), shown as a card or as plain label/value lines. The values are dot-walked tokens (`{{record.caller_id.email}}`), so they are fetched with the record and no extra requests are made. The title can link to the referenced record, and an empty reference prints its "when empty" text or nothing at all.
 - **List:** bulleted, numbered or checkbox items. An item that fills in to several lines, such as a multi-line field, becomes one item per line.
@@ -42,9 +63,25 @@ Heading, text, field list, columns, **related list**, stats, image, signatures, 
 - **Code:** preformatted text in Courier with every space and tab kept. Long lines break at the box edge, line numbers are optional, and a block longer than a page continues in its own box on the next page.
 - **Link:** text that opens a web page, an email (`mailto:`), a phone number (`tel:`) or a path on the instance (`/incident_list.do`). In the PDF it is a real link annotation.
 
+**Conditions:** any block can be set to **Show only when…** a value (usually one token, such as `{{raw.priority}}`) is empty, is not empty, is, is not, contains, or is more or less than another. Comparisons ignore case. A block whose condition fails is left out, on paper and on screen.
+
 Page-level features are the letterhead (logo plus text), a watermark, a footer with per-record page numbers, an optional cover page or title slide, and a house style.
 
 **Links:** only `http(s):`, `mailto:` and `tel:` addresses, and paths on this instance (made absolute), are made into links. Anything else, such as `javascript:`, prints as plain text and is reported as a problem on export.
+
+## Drafts, publishing and versions
+
+- **Save** in the designer keeps a **draft**; the published template stays as it was, so exports, decks and presentations go on using it. **Publish** makes the draft what they use. A template nobody has published since it was made publishes on its first save.
+- Each publish is a numbered **version**, kept on `x_1040823_template_version` with who published it, when, and the note given. The designer's **History** tab compares any version with what is in the editor (blocks added, removed and changed; page, style and furniture changes) and restores one into the editor, to save or publish as usual.
+- **Discard unpublished changes**, in the designer's menu, drops the draft.
+- A business rule numbers versions whenever `body` changes, so a script's `updateTemplate` or a body pasted on the form is versioned too. Only Templater editors can read versions.
+- Chart templates work the same way, and their designer lists every template and presentation that places the chart, since publishing changes all of them.
+
+## Saving safely
+
+- **Someone else saved first:** saving a template, chart or presentation that someone else saved since you opened it stops and asks whether to load theirs, save yours over it, or save yours as a copy.
+- **Unsaved work is kept in this browser** while you edit a saved template, chart or presentation. If the tab closes or the browser crashes before you save, opening it again offers the changes back.
+- **The session ended:** a request refused for want of a session first tries the page's fresh session token; failing that, a dialog asks you to sign in again in another tab and then **Try again**, and the save or export that was waiting carries on. Nothing on the page is lost.
 
 ## Charts
 
@@ -151,32 +188,41 @@ They also show in the **New template** dialog under "Start from", which creates 
 ## Layout
 
 ```
-src/client/engine/     pure engine (pdf.ts, pdfFonts.ts, image.ts, imageFile.ts are ported verbatim)
-  template.ts          block language, starters
+src/client/engine/     pure engine (pdf.ts, pdfFonts.ts, image.ts, imageFile.ts are ported from cpq-vibes)
+  types.ts             the data shapes: a template, its blocks, a chart template, a render job
+  template.ts          block language defaults, starters
   gallery.ts           the ready-made templates (source of the installed starters)
   render.ts            PDF renderer: many records, cover, per-page furniture; arranged decks
-  chart.ts             chart layout (every kind) and drawing into the PDF
+  chart.ts             picks a chart's layout, fits it to a box, draws it into the PDF
+  chart/               figures (data.ts), shared marks (shared.ts), and one file per kind
   presentation.ts      saved presentations: custom slides, running order, layouts
   freeform.ts          custom slides into the PDF, and the geometry the screen shares
   validate.ts          drop-don't-refuse body reader
-  tokens.ts            {{token}} substitution
+  tokens.ts            {{token}} substitution and formatters
+  expand.ts            conditions and repeats, resolved before drawing
+  diff.ts              what changed between two versions of a template
+  fonts/               embedded Noto Sans: TrueType reader and subsetter, lazy loader
+  __tests__/           unit tests and golden renders of the starters (vitest)
   vocabulary.ts        tokens to field paths and values
   links.ts             which link addresses are allowed, made absolute
 src/client/data/       loader: fetches only the fields and related lists a template uses;
-                       deck and section loading; chart templates, counted and cached
+                       deck and section loading; chart templates, counted and cached;
+                       pictures as attachments; drafts kept in the browser
 src/client/services/   Table, Aggregate and scripted REST calls
 src/client/slides/     HTML renderer of the same template, custom slides, and the presenter
 src/client/designer/   template and chart designers (token panel, blocks, live preview)
-src/client/builder/    slide builder: canvas, slide list, ribbon, inspector, undo
+src/client/builder/    slide builder: canvas, slide list, ribbon, inspector, undo, and the
+                       builder's dialogs, panels, keys and editing state as their own files
 src/client/views/      Templates, Editor, Chart editor, Export, Present, Builder
 src/client/ui/         custom components (no UI libraries)
-src/client/styles/     CSS, with design tokens in tokens.css
+src/client/styles/     CSS, with design tokens in tokens.css (each file under 14 KB, or the build refuses it)
+src/client/assets/     the embedded fonts (Noto Sans, SIL Open Font License)
 src/client/debug/      developer tools (see Debugging)
 src/client/platform.ts restores Array.from, which the platform's Prototype.js replaces
-src/server/            scripted REST: /schema/{table}, /tables, /me
-src/fluent/            table, roles, ACLs, REST API, UI page, menu, UI actions
+src/server/            scripted REST: /schema/{table}, /tables, /me, /email; the version business rule
+src/fluent/            tables, roles, ACLs, REST API, UI page, menu, UI actions, business rule, Flow actions
 src/fluent/templates/  GENERATED starter template records (npm run starters)
-scripts/               build-starters.mjs
+scripts/               build-starters.mjs, build-fonts.mjs
 ```
 
 ## Roles
@@ -190,6 +236,20 @@ scripts/               build-starters.mjs
 - `x_1040823_template_templater.do?view=present&presentation=<sys_id>` presents a saved presentation directly. "Copy link to present" on the Present page gives this link.
 - **Export with Templater**: a related link on any form, shown only where an active template applies.
 - **Export / present with Templater**: a list action on selected rows.
+
+On the export screen, a PDF of one record can be **attached** to it, and **emailed**: the email links to the attachment on the record (`POST /api/x_1040823_template/templater/email`), so recipients need access to the record to open it. The instance checks that the sender can read the record and that the file is the record's own. A batch export shows how far it has got and can be cancelled, and everything that could not be drawn as asked is listed in one panel.
+
+### Flow Designer
+
+Three actions, in the **Templater** category, wrap the script include for flows:
+
+| Action | Inputs | Outputs |
+| --- | --- | --- |
+| Get Templater export link | template, record sys_id or records query, full address | export link |
+| Create Templater presentation | name, deck template (optional), title, query, limit | presentation, present link, edit link |
+| Add slide to Templater presentation | presentation, layout, title, text, speaker notes | present link |
+
+PDFs are still drawn in the browser, so an action gives a flow a link that makes one, not the file.
 
 ## Scripting
 
@@ -210,7 +270,7 @@ Records are read and written with `GlideRecord`, as server scripts normally do. 
 | `getTemplate(template)` | `{ sys_id, name, kind, table, description, active, query, orderBy, limit, body }` (body parsed), or `null` |
 | `findTemplates({ table, kind, activeOnly })` | Matching templates without their bodies. `table` also matches templates made for a table it extends. `activeOnly` defaults to true. |
 | `createTemplate({ name, table, kind, body, description, query, orderBy, limit, active })` | The new sys_id. `body` is an object or JSON. If you leave it out, the designer starts the template from the table's fields. |
-| `copyTemplate(template, changes)` | The copy's sys_id, named "… (copy)" unless `changes.name` says otherwise. |
+| `copyTemplate(template, changes)` | The copy's sys_id, named "… (copy)" unless `changes.name` says otherwise. The copy gets copies of the template's picture attachments. |
 | `updateTemplate(template, changes)` | The sys_id. |
 
 ### PDF links
@@ -340,16 +400,29 @@ The property is an app record, so each deploy resets it to `false`.
 
 ## Build and deploy
 
+Dependencies are installed with Bun (`bun install`); the scripts run with npm or Bun alike.
+
 ```bash
-npm run build    # regenerates the starters, then now-sdk build
-npm run deploy   # now-sdk install
-npm run dev      # local dev server (now-sdk run dev)
+npm run build         # regenerates the starters and font modules, then now-sdk build
+npm run deploy        # now-sdk install
+npm run dev           # local dev server (now-sdk run dev)
+
+npm test              # unit tests and golden renders (vitest)
+npm run typecheck     # client, tests and server
+npm run lint          # eslint, with the React hooks rules
+npm run format        # prettier --write
+npm run check         # format check, lint, typecheck and tests: what CI runs
 ```
+
+- **Golden renders:** `src/client/engine/__tests__/render.test.ts` draws every starter against fixture records and compares the text drawn and a fingerprint of the layout with a snapshot. A change to the renderer shows up there; if it is intended, update the snapshots with `npx vitest run -u` and review the diff.
+- **CI** (`.github/workflows/ci.yml`) runs the checks on every push and pull request, then builds with `now-sdk build --frozenKeys`, which fails when a change adds a Fluent record without committing the `keys.ts` it generated.
+- **Fonts:** `npm run fonts` turns `src/client/assets/fonts/*.ttf` into modules under `src/client/engine/fonts/data/` (generated, not committed). The build, dev server, tests and typecheck run it first.
 
 ## Limits
 
-- PDFs use the standard 14 fonts (WinAnsi), so text outside Latin-1 prints as `?`.
+- PDFs set text in the standard 14 fonts (WinAnsi) where they can. Characters outside it are set in an embedded subset of Noto Sans, which covers Latin, Greek and Cyrillic: the fonts load the first time a PDF needs them, and a document in plain Latin never loads them. Other scripts (CJK, Arabic, Hebrew, Indic) still print as `?`, and Noto Sans is used for every family, so non-Latin text in a Times or Courier template is set in a sans serif.
 - Images must be PNG or JPEG. The picker flattens and re-encodes anything else in the browser.
 - One render covers at most 500 records, and each related list at most 500 rows.
-- A presentation can have up to 200 custom slides of up to 120 elements each. Its body, pictures included, can be up to 3,000,000 characters.
+- A presentation can have up to 200 custom slides of up to 120 elements each. Its body can be up to 3,000,000 characters; pictures are attachments and do not count.
+- Picture attachments are never deleted automatically: earlier versions of a template name the pictures they had.
 - Shapes have no gradients or shadows. A link on a rotated element covers the upright box around it in the PDF. On screen, text wraps by the browser's font metrics and in the PDF by the standard 14 fonts' metrics, so a line can break a word earlier or later in one than in the other.

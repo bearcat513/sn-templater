@@ -11,7 +11,7 @@
  * The editor parses through this too, so a body written by hand against the
  * Table API opens with exactly the defaults it will be stored with.
  */
-import { isEmbeddableImage } from "./image";
+import { isStorablePicture } from "./image";
 import { DEFAULT_MARGINS, PAGE_SIZES } from "./pdf";
 import { FONT_FAMILIES, type FontFamily } from "./pdfFonts";
 import {
@@ -26,6 +26,8 @@ import {
   starterChart,
   starterTemplate,
   type BlockAlign,
+  type BlockCondition,
+  type ConditionTest,
   type CalloutTone,
   type ChartKind,
   type ChartMeasure,
@@ -57,7 +59,10 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 
 const asRecord = (value: unknown): Record<string, unknown> => (isRecord(value) ? value : {});
 
-const text = (value: unknown, max: number): string => String(value ?? "").trim().slice(0, max);
+const text = (value: unknown, max: number): string =>
+  String(value ?? "")
+    .trim()
+    .slice(0, max);
 
 /** Like `text`, but a template's prose keeps its own leading and trailing lines. */
 const prose = (value: unknown, max: number): string => String(value ?? "").slice(0, max);
@@ -99,13 +104,14 @@ export const SYS_ID = /^[0-9a-f]{32}$/;
 const sysId = (value: unknown): string => (SYS_ID.test(String(value ?? "")) ? String(value) : "");
 
 /**
- * A picture, as a `data:` URL. Anything a PDF reader could not be handed is
- * dropped to "" rather than refused; the editor refuses it when it is chosen,
- * which is where the message is useful.
+ * A picture, as a `data:` URL or a reference to an attachment holding one.
+ * Anything a PDF reader could not be handed is dropped to "" rather than
+ * refused; the editor refuses it when it is chosen, which is where the
+ * message is useful.
  */
 const imageSource = (value: unknown): string => {
   if (typeof value !== "string" || !value.trim()) return "";
-  return isEmbeddableImage(value.trim()) ? value.trim() : "";
+  return isStorablePicture(value.trim()) ? value.trim() : "";
 };
 
 /* --------------------------------- pieces -------------------------------- */
@@ -169,7 +175,27 @@ function readWatermark(raw: unknown): PdfWatermark | undefined {
   };
 }
 
-function readBlock(raw: unknown): PdfBlock | null {
+const CONDITION_TESTS: ConditionTest[] = ["empty", "notEmpty", "equals", "notEquals", "contains", "greater", "less"];
+
+/** A block's condition. One with no value is no condition; an unknown test is `notEmpty`. */
+function readCondition(raw: unknown): BlockCondition | undefined {
+  const input = asRecord(raw);
+  const value = text(input.value, 500);
+  if (!value) return undefined;
+  const test = oneOf<ConditionTest>(input.test, CONDITION_TESTS, "notEmpty");
+  const to = text(input.to, 500);
+  return { value, test, ...(to && test !== "empty" && test !== "notEmpty" ? { to } : {}) };
+}
+
+/** A block, and its condition if it has one. `nested` is true inside a repeat, where another repeat is not allowed. */
+function readBlock(raw: unknown, nested = false): PdfBlock | null {
+  const block = readOwnBlock(raw, nested);
+  if (!block) return null;
+  const when = readCondition(asRecord(raw).when);
+  return when ? { ...block, when } : block;
+}
+
+function readOwnBlock(raw: unknown, nested: boolean): PdfBlock | null {
   const input = asRecord(raw);
 
   switch (input.type) {
@@ -248,7 +274,9 @@ function readBlock(raw: unknown): PdfBlock | null {
         table: identifier(input.table),
         field: identifier(input.field),
         ...(query(input.query) ? { query: query(input.query) } : {}),
-        ...(identifier(input.orderBy, 200) ? { orderBy: (String(input.orderBy).trim().startsWith("-") ? "-" : "") + identifier(input.orderBy, 200) } : {}),
+        ...(identifier(input.orderBy, 200)
+          ? { orderBy: (String(input.orderBy).trim().startsWith("-") ? "-" : "") + identifier(input.orderBy, 200) }
+          : {}),
         limit: Math.trunc(bounded(input.limit, DEFAULT_RELATED_LIMIT, 1, MAX_RELATED_ROWS)),
         ...(text(input.title, 200) ? { title: text(input.title, 200) } : {}),
         columns: readListColumns(input.columns),
@@ -272,21 +300,26 @@ function readBlock(raw: unknown): PdfBlock | null {
       const source = asRecord(input.related);
       const table = identifier(source.table);
       // Like a related list, a half-chosen source is kept for the editor to finish.
-      const related = table || identifier(source.groupBy, 200)
-        ? {
-            table,
-            field: identifier(source.field),
-            ...(query(source.query) ? { query: query(source.query) } : {}),
-            groupBy: identifier(source.groupBy, 200),
-            ...(identifier(source.thenBy, 200) ? { thenBy: identifier(source.thenBy, 200) } : {}),
-            ...(identifier(source.start, 200) ? { start: identifier(source.start, 200) } : {}),
-            ...(identifier(source.end, 200) ? { end: identifier(source.end, 200) } : {}),
-          }
-        : undefined;
+      const related =
+        table || identifier(source.groupBy, 200)
+          ? {
+              table,
+              field: identifier(source.field),
+              ...(query(source.query) ? { query: query(source.query) } : {}),
+              groupBy: identifier(source.groupBy, 200),
+              ...(identifier(source.thenBy, 200) ? { thenBy: identifier(source.thenBy, 200) } : {}),
+              ...(identifier(source.start, 200) ? { start: identifier(source.start, 200) } : {}),
+              ...(identifier(source.end, 200) ? { end: identifier(source.end, 200) } : {}),
+            }
+          : undefined;
       const template = sysId(input.template);
       return {
         type: "chart",
-        chart: oneOf<ChartKind>(input.chart, CHART_KINDS.map(entry => entry.kind), "column"),
+        chart: oneOf<ChartKind>(
+          input.chart,
+          CHART_KINDS.map(entry => entry.kind),
+          "column",
+        ),
         ...(text(input.title, 200) ? { title: text(input.title, 200) } : {}),
         items: (Array.isArray(input.items) ? input.items : []).slice(0, 60).map(entry => {
           const item = asRecord(entry);
@@ -391,7 +424,11 @@ function readBlock(raw: unknown): PdfBlock | null {
       const columns = (Array.isArray(input.columns) ? input.columns : []).slice(0, 12).map(entry => {
         const column = asRecord(entry);
         const at: BlockAlign | undefined = align(column.align);
-        return { header: text(column.header, 120), width: bounded(column.width, 1, 0.1, 100), ...(at ? { align: at } : {}) };
+        return {
+          header: text(column.header, 120),
+          width: bounded(column.width, 1, 0.1, 100),
+          ...(at ? { align: at } : {}),
+        };
       });
       const width = Math.max(1, columns.length);
       return {
@@ -408,6 +445,27 @@ function readBlock(raw: unknown): PdfBlock | null {
       };
     }
 
+    case "repeat": {
+      if (nested) return null;
+      return {
+        type: "repeat",
+        table: identifier(input.table),
+        field: identifier(input.field),
+        ...(query(input.query) ? { query: query(input.query) } : {}),
+        ...(identifier(input.orderBy, 200)
+          ? {
+              orderBy: (String(input.orderBy).trim().startsWith("-") ? "-" : "") + identifier(input.orderBy, 200),
+            }
+          : {}),
+        limit: Math.trunc(bounded(input.limit, DEFAULT_RELATED_LIMIT, 1, MAX_RELATED_ROWS)),
+        blocks: (Array.isArray(input.blocks) ? input.blocks : [])
+          .slice(0, MAX_REPEAT_BLOCKS)
+          .map(entry => readBlock(entry, true))
+          .filter((block): block is PdfBlock => block !== null),
+        ...(text(input.emptyText, 200) ? { emptyText: text(input.emptyText, 200) } : {}),
+      };
+    }
+
     case "pageBreak":
       return { type: "pageBreak" };
 
@@ -416,10 +474,13 @@ function readBlock(raw: unknown): PdfBlock | null {
   }
 }
 
+/** Most blocks inside one repeat. */
+const MAX_REPEAT_BLOCKS = 40;
+
 const readBlocks = (raw: unknown): PdfBlock[] =>
   (Array.isArray(raw) ? raw : [])
     .slice(0, MAX_BLOCKS)
-    .map(readBlock)
+    .map(entry => readBlock(entry))
     .filter((block): block is PdfBlock => block !== null);
 
 /* -------------------------------- the body ------------------------------- */
@@ -519,7 +580,11 @@ export const serializeTemplate = (template: PdfTemplate): string => {
  * body is a new chart, and anything unreadable in it falls back to the
  * starter's value rather than failing the whole chart.
  */
-export function readChartTemplate(raw: unknown, fields: StarterField[] = [], tableLabel?: string): Validated<ChartTemplate> {
+export function readChartTemplate(
+  raw: unknown,
+  fields: StarterField[] = [],
+  tableLabel?: string,
+): Validated<ChartTemplate> {
   let source: unknown = raw;
   if (typeof raw === "string") {
     const trimmed = raw.trim();
@@ -532,11 +597,19 @@ export function readChartTemplate(raw: unknown, fields: StarterField[] = [], tab
   }
   if (!isRecord(source)) return invalid("A chart must be an object with a `chart` and a `groupBy`.");
 
-  const measure = oneOf<ChartMeasure>(source.measure, CHART_MEASURES.map(entry => entry.measure), "count");
+  const measure = oneOf<ChartMeasure>(
+    source.measure,
+    CHART_MEASURES.map(entry => entry.measure),
+    "count",
+  );
   const field = identifier(source.field);
   return valid({
     version: 1,
-    chart: oneOf<ChartKind>(source.chart, CHART_KINDS.map(entry => entry.kind), "column"),
+    chart: oneOf<ChartKind>(
+      source.chart,
+      CHART_KINDS.map(entry => entry.kind),
+      "column",
+    ),
     ...(text(source.title, 200) ? { title: text(source.title, 200) } : {}),
     groupBy: identifier(source.groupBy),
     ...(identifier(source.thenBy) ? { thenBy: identifier(source.thenBy) } : {}),
