@@ -18,14 +18,22 @@
  * Attachments are never deleted here: a template's earlier versions name
  * the pictures they had, and restoring one should find them.
  */
+import { PICTURE_PREFIX } from '../../server/shared/constants'
 import { PICTURE_REF, isPictureRef } from '../engine/image'
 import { AttachmentService } from '../services/attachments'
 import { log } from '../debug/log'
 
-const PREFIX = 'templater-'
+const PREFIX = PICTURE_PREFIX
 
 /** Opened pictures, by record and name: a picture does not change under its name. */
 const cache = new Map<string, Promise<string | null>>()
+
+/**
+ * The reference each picture opened or stored on this page was read from,
+ * by its `data:` URL: what lets a local copy of unsaved work name a picture
+ * rather than carry it (see `referPictures`).
+ */
+const references = new Map<string, string>()
 
 const DATA_URL = /^data:(image\/(?:png|jpeg));base64,([A-Za-z0-9+/=\s]+)$/
 
@@ -62,6 +70,38 @@ async function rewrite<T>(value: T, change: (text: string) => Promise<string>): 
     return value
 }
 
+/** The same as `rewrite`, for a change that needs no waiting. */
+function rewriteNow<T>(value: T, change: (text: string) => string): T {
+    if (typeof value === 'string') return change(value) as T
+    if (Array.isArray(value)) return value.map(item => rewriteNow(item, change)) as T
+    if (value && typeof value === 'object') {
+        return Object.fromEntries(
+            Object.entries(value as Record<string, unknown>).map(([key, item]) => [key, rewriteNow(item, change)])
+        ) as T
+    }
+    return value
+}
+
+/**
+ * A body with every picture that is already an attachment named rather
+ * than carried: what is kept of unsaved work in the browser, which has room
+ * for the text of a deck but not for its photographs. Pictures added since
+ * the last save are not attachments yet, and stay as they are.
+ */
+export const referPictures = <T>(body: T): T =>
+    references.size ? rewriteNow(body, text => references.get(text) ?? text) : body
+
+/** A body with the pictures that are still `data:` URLs taken out, and how many there were. */
+export function dropNewPictures<T>(body: T): { body: T; dropped: number } {
+    let dropped = 0
+    const out = rewriteNow(body, text => {
+        if (!DATA_URL.test(text)) return text
+        dropped++
+        return ''
+    })
+    return { body: out, dropped }
+}
+
 /**
  * A body with its pictures in it: each attachment reference swapped for the
  * picture as a `data:` URL. A picture that cannot be read stays a reference,
@@ -83,7 +123,9 @@ export async function openPictures<T>(body: T, table: string, sysId: string): Pr
                     const file = found.get(name)
                     if (!file) return null
                     const type = name.endsWith('.png') ? 'image/png' : 'image/jpeg'
-                    return `data:${type};base64,${toBase64(await AttachmentService.file(file.sysId))}`
+                    const url = `data:${type};base64,${toBase64(await AttachmentService.file(file.sysId))}`
+                    references.set(url, `attachment:${name}`)
+                    return url
                 })
                 .catch(failure => {
                     log.warn('pictures', `Could not read ${name}`, failure)
@@ -120,6 +162,7 @@ export async function storePictures<T>(body: T, table: string, sysId: string): P
         }
         await upload
         cache.set(`${sysId}/${name}`, Promise.resolve(text))
+        references.set(text, `attachment:${name}`)
         return `attachment:${name}`
     })
 }

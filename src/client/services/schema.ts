@@ -1,7 +1,8 @@
 import type { SchemaField } from '../engine/vocabulary'
+import { API_BASE } from '../../server/shared/constants'
 import { getJson, query } from './http'
 
-const API = '/api/x_1040823_template/templater'
+const API = API_BASE
 
 /** A reference field on another table that can point at a record of this one. */
 export type Relationship = {
@@ -32,6 +33,18 @@ export type SessionContext = {
     /** Today, in the user's own date format. */
     date: string
     dateTime: string
+    /**
+     * The user's ServiceNow time zone (an IANA name, such as Europe/London)
+     * and language, so dates and numbers drawn in the browser match the
+     * instance rather than the laptop. Empty when the instance did not say.
+     */
+    timeZone: string
+    language: string
+    /** The user's date and time formats, as Java patterns: `yyyy-MM-dd`, `HH:mm:ss`. */
+    dateFormat: string
+    timeFormat: string
+    /** The sys_ids of the groups the user is in. */
+    groups: string[]
     canEdit: boolean
     /** The x_1040823_template.debug property: show the developer tools. */
     debug: boolean
@@ -64,7 +77,15 @@ export const SchemaService = {
     },
 
     async context(): Promise<SessionContext> {
-        const body = await getJson<{ result: SessionContext }>(`${API}/me`)
-        return body.result
+        const body = await getJson<{ result: Partial<SessionContext> }>(`${API}/me`)
+        // An instance on an older version of the app sends less: the browser's own settings stand in.
+        return {
+            timeZone: '',
+            language: '',
+            dateFormat: '',
+            timeFormat: '',
+            groups: [],
+            ...body.result,
+        } as SessionContext
     },
 }

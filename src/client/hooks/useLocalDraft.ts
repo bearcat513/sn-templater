@@ -12,15 +12,38 @@ const DELAY = 800
  * to keep; `dirty` is whether it differs from what is saved. The left-over
  * draft is read once, when the key first arrives — `found` — and stays until
  * the editor restores it or throws it away.
+ *
+ * The copy names stored pictures rather than carrying them; `open` puts them
+ * back (usually `openPictures` for the record) before it is offered.
  */
-export function useLocalDraft<T>(key: string | null, value: T, dirty: boolean, modCount: number) {
+export function useLocalDraft<T>(
+    key: string | null,
+    value: T,
+    dirty: boolean,
+    modCount: number,
+    open?: (value: T) => Promise<T>
+) {
     const [found, setFound] = useState<LocalDraft<T> | null>(null)
     const read = useRef<string | null>(null)
+    const opener = useRef(open)
+    opener.current = open
 
     useEffect(() => {
         if (!key || read.current === key) return
         read.current = key
-        setFound(readLocalDraft<T>(key))
+        const kept = readLocalDraft<T>(key)
+        if (!kept || !opener.current) {
+            setFound(kept)
+            return
+        }
+        let live = true
+        opener
+            .current(kept.value)
+            .then(value => live && setFound({ ...kept, value }))
+            .catch(() => live && setFound(kept))
+        return () => {
+            live = false
+        }
     }, [key])
 
     useEffect(() => {

@@ -1,18 +1,19 @@
 import '@servicenow/sdk/global'
 import { RestApi } from '@servicenow/sdk/core'
-import { getContext, getSchema, getTables, sendEmail } from '../../server/templater-api'
+import { getContext, getSchema, getTables, saveRecord, sendEmail } from '../../server/templater-api'
 
 /**
  * /api/x_1040823_template/templater/...
  *
- * Both routes check for the Templater user role themselves, and the schema
- * route also checks the caller can read the table it is asked about.
+ * Every route checks for the Templater user role itself. The schema and
+ * email routes also check the caller can read what they are asked about,
+ * and the save route writes through the caller's own ACLs.
  */
 RestApi({
     $id: Now.ID['templater-api'],
     name: 'Templater',
     serviceId: 'templater',
-    shortDescription: 'Table schema and session context for the Templater UI page.',
+    shortDescription: 'Table schema, session context, email and safe saves for the Templater UI page.',
     consumes: 'application/json',
     produces: 'application/json',
     routes: [
@@ -37,7 +38,7 @@ RestApi({
             name: 'me',
             method: 'GET',
             path: '/me',
-            shortDescription: "The caller's name, email and today's date in their format.",
+            shortDescription: "The caller's name, email, today's date in their format, time zone and language.",
             script: getContext,
         },
         {
@@ -45,8 +46,17 @@ RestApi({
             name: 'email',
             method: 'POST',
             path: '/email',
-            shortDescription: 'Emails a link to a PDF attached to a record the caller can read.',
+            shortDescription: 'Emails a link to a PDF attached to a record the caller can read, or to a delivery.',
             script: sendEmail,
+        },
+        {
+            $id: Now.ID['templater-api-save'],
+            name: 'save',
+            method: 'POST',
+            path: '/save/{table}/{sys_id}',
+            shortDescription:
+                'Saves a template or presentation only if nobody else has since it was read, in one transaction.',
+            script: saveRecord,
         },
     ],
 })

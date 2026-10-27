@@ -4,4 +4,7 @@ dist/
 node_modules/
 target/
 *.tsbuildinfo
-.jest_cachesrc/client/engine/fonts/data/
+.jest_cache
+src/client/engine/fonts/data/
+test-results/
+playwright-report/

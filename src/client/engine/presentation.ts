@@ -32,6 +32,15 @@
  * and speaker notes belong to presenting. The PDF draws every element and
  * none of the rest — it is the handout, not the show.
  */
+import { PRESENTATION_BODY_VERSION, migratePresentationBody } from "../../server/shared/schema";
+import {
+  MAX_CUSTOM_SLIDES as SHARED_MAX_CUSTOM_SLIDES,
+  MAX_ELEMENTS as SHARED_MAX_ELEMENTS,
+  MAX_BODY_LENGTH,
+  MAX_NOTES_LENGTH as SHARED_MAX_NOTES_LENGTH,
+  MAX_SECTIONS as SHARED_MAX_SECTIONS,
+  MAX_SECTION_RECORDS as SHARED_MAX_SECTION_RECORDS,
+} from "../../server/shared/constants";
 import { isStorablePicture } from "./image";
 import { FONT_FAMILIES, type FontFamily } from "./pdfFonts";
 import { CHART_KINDS, type ChartKind, type PdfPageSetup } from "./template";
@@ -237,6 +246,11 @@ export type CustomSlide = {
   background?: string;
   /** Draw the template's letterhead, watermark and footer on it too. */
   furniture?: boolean;
+  /**
+   * What the slide shows, in words, for someone who cannot see it: read out
+   * for its thumbnail and in the presenter. Absent is its name and its text.
+   */
+  alt?: string;
   /** Back to front. */
   elements: SlideElement[];
 };
@@ -280,11 +294,12 @@ export type DeckSection = {
   limit: number;
 };
 
-export const MAX_SECTIONS = 20;
-export const MAX_SECTION_RECORDS = 200;
+export const MAX_SECTIONS = SHARED_MAX_SECTIONS;
+export const MAX_SECTION_RECORDS = SHARED_MAX_SECTION_RECORDS;
 
 export type PresentationBody = {
-  version: 1;
+  /** The body format's version (src/server/shared/schema.ts). */
+  version: number;
   slides: CustomSlide[];
   order: SlideEntry[];
   /** Templates placed in the deck, each drawn where its section sits in the order. */
@@ -299,13 +314,13 @@ export type PresentationBody = {
 };
 
 export const DEFAULT_TRANSITION: Transition = "fade";
-export const MAX_NOTES_LENGTH = 5000;
+export const MAX_NOTES_LENGTH = SHARED_MAX_NOTES_LENGTH;
 
-export const EMPTY_BODY: PresentationBody = { version: 1, slides: [], order: [] };
+export const EMPTY_BODY: PresentationBody = { version: PRESENTATION_BODY_VERSION, slides: [], order: [] };
 
-export const MAX_CUSTOM_SLIDES = 200;
-export const MAX_ELEMENTS = 120;
-export const MAX_PRESENTATION_BODY_LENGTH = 3_000_000;
+export const MAX_CUSTOM_SLIDES = SHARED_MAX_CUSTOM_SLIDES;
+export const MAX_ELEMENTS = SHARED_MAX_ELEMENTS;
+export const MAX_PRESENTATION_BODY_LENGTH = MAX_BODY_LENGTH;
 
 export const customKey = (id: string): string => `custom:${id}`;
 export const isCustomKey = (key: string): boolean => key.startsWith("custom:");
@@ -560,9 +575,13 @@ function readSlide(value: unknown): CustomSlide | null {
   const name = String(value.name ?? "")
     .trim()
     .slice(0, 80);
+  const alt = String(value.alt ?? "")
+    .trim()
+    .slice(0, 1000);
   return {
     id: id(value.id),
     ...(name ? { name } : {}),
+    ...(alt ? { alt } : {}),
     ...(background ? { background } : {}),
     ...(value.furniture === true ? { furniture: true } : {}),
     elements: (Array.isArray(value.elements) ? value.elements : [])
@@ -587,6 +606,8 @@ export function readPresentation(raw: unknown): PresentationBody {
       return { ...EMPTY_BODY };
     }
   }
+  if (!isRecord(source)) return { ...EMPTY_BODY };
+  source = migratePresentationBody(source);
   if (!isRecord(source)) return { ...EMPTY_BODY };
 
   const seen = new Set<string>();
@@ -638,7 +659,7 @@ export function readPresentation(raw: unknown): PresentationBody {
     : undefined;
 
   return {
-    version: 1,
+    version: PRESENTATION_BODY_VERSION,
     slides,
     order,
     ...(sections.length ? { sections } : {}),

@@ -1,6 +1,7 @@
+import { API_BASE } from '../../server/shared/constants'
 import { getJson } from './http'
 
-const API = '/api/x_1040823_template/templater'
+const API = API_BASE
 
 /** What the email route needs: the record, the PDF attached to it, and who to tell. */
 export type EmailRequest = {

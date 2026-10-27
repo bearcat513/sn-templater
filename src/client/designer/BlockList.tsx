@@ -11,7 +11,7 @@ import type { TableSchema } from '../services/schema'
 import { Icon, type IconName } from '../ui/icons'
 import { IconButton, cx } from '../ui/controls'
 import { BlockFields, summarise } from './BlockFields'
-import { ConditionFields, describeCondition } from './RepeatFields'
+import { ConditionFields, describeCondition } from './ConditionFields'
 
 const BLOCK_ICONS: Record<BlockType, IconName> = {
     heading: 'file',
@@ -141,7 +141,7 @@ export function BlockList({ blocks, onChange, kind, schema, label, nested = fals
                                     </span>
                                     <span className="tp-block__summary tp-truncate">
                                         {summarise(block)}
-                                        {block.when ? ` · ${describeCondition(block.when)}` : ''}
+                                        {block.when ? ` · only when ${describeCondition(block.when)}` : ''}
                                     </span>
                                 </button>
                                 <div className="tp-block__actions">
@@ -183,7 +183,7 @@ export function BlockList({ blocks, onChange, kind, schema, label, nested = fals
                                         onChange={changes => patch(index, changes)}
                                     />
                                     {block.type !== 'pageBreak' && (
-                                        <ConditionFields block={block} onChange={when => patch(index, { when })} />
+                                        <ConditionFields value={block.when} onChange={when => patch(index, { when })} />
                                     )}
                                 </div>
                             )}

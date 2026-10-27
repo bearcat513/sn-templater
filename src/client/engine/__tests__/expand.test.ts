@@ -18,6 +18,17 @@ describe("holds", () => {
   ] as const)("%j is %s", (condition, expected) => {
     expect(holds(condition, values)).toBe(expected);
   });
+
+  it("holds a group when all, or any, of it does", () => {
+    const p1 = { value: "{{raw.priority}}", test: "equals", to: "1" } as const;
+    const assigned = { value: "{{record.assigned_to}}", test: "notEmpty" } as const;
+    expect(holds({ all: [p1, assigned] }, values)).toBe(false);
+    expect(holds({ any: [p1, assigned] }, values)).toBe(true);
+    expect(
+      holds({ all: [p1, { any: [assigned, { value: "{{record.state}}", test: "contains", to: "prog" }] }] }, values),
+    ).toBe(true);
+    expect(holds({ any: [] }, values)).toBe(true);
+  });
 });
 
 const repeat: RepeatBlock = {
@@ -74,6 +85,28 @@ describe("expandBlocks", () => {
     expect(heading).toEqual({ type: "heading", text: "1/1 {​{user.email}} for {{record.number}}" });
   });
 
+  it("draws only the rows its filter keeps, numbered among themselves", () => {
+    const filtered: RepeatBlock = { ...repeat, where: { value: "{{row.assigned_to}}", test: "empty" } };
+    const rows = [
+      { number: "TASK1", assigned_to: "Ann" },
+      { number: "TASK2", assigned_to: "" },
+      { number: "TASK3", assigned_to: "" },
+    ];
+    const out = expandBlocks([filtered], {}, { [relatedKey(repeatRelatedList(filtered))]: { rows, total: 3 } });
+    expect(out.filter(block => block.type === "heading")).toEqual([
+      { type: "heading", text: "1/2 TASK2 for {{record.number}}" },
+      { type: "heading", text: "2/2 TASK3 for {{record.number}}" },
+    ]);
+  });
+
+  it("fetches the fields a row filter tests", () => {
+    expect(rowFields({ ...repeat, where: { value: "{{row.raw.priority}}", test: "less", to: "3" } })).toEqual([
+      "assigned_to",
+      "number",
+      "priority",
+    ]);
+  });
+
   it("is the same expanded twice", () => {
     const once = expandBlocks([repeat], {}, related([{ number: "T", assigned_to: "" }]));
     expect(expandBlocks(once, {}, {})).toEqual(once);
@@ -101,5 +134,37 @@ describe("repeats in a template", () => {
     const [kept, text] = read.value.blocks;
     expect(kept?.type === "repeat" && kept.blocks.map(block => block.type)).toEqual(["heading", "text"]);
     expect(text?.when).toEqual({ value: "{{a}}", test: "notEmpty" });
+  });
+
+  it("reads condition groups, folding a group of one and dropping empty or too-deep ones", () => {
+    const read = (when: unknown) => {
+      const result = readTemplate(JSON.stringify({ page: {}, blocks: [{ type: "text", text: "x", when }] }));
+      if (!result.ok) throw new Error(result.error);
+      return result.value.blocks[0]?.when;
+    };
+    const a = { value: "{{a}}", test: "empty" };
+    const b = { value: "{{b}}", test: "notEmpty" };
+    expect(read({ any: [a, b] })).toEqual({ any: [a, b] });
+    expect(read({ all: [a] })).toEqual(a);
+    expect(read({ all: [] })).toBeUndefined();
+    expect(read({ all: [a, { any: [{ all: [a, b] }, b] }] })).toEqual({ all: [a, b] });
+  });
+
+  it("reads conditions on the cover, letterhead and watermark", () => {
+    const when = { value: "{{raw.state}}", test: "equals", to: "1" };
+    const result = readTemplate(
+      JSON.stringify({
+        page: {},
+        blocks: [{ type: "text", text: "x" }],
+        cover: [{ type: "heading", text: "Cover" }],
+        coverWhen: when,
+        header: { text: "Acme", when },
+        watermark: { text: "DRAFT", when },
+      }),
+    );
+    if (!result.ok) throw new Error(result.error);
+    expect(result.value.coverWhen).toEqual(when);
+    expect(result.value.header?.when).toEqual(when);
+    expect(result.value.watermark?.when).toEqual(when);
   });
 });

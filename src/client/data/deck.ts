@@ -61,8 +61,20 @@ export const sourceOf = (presentation: PresentationRecord): DeckSource => ({
     limit: presentation.limit,
 })
 
-/** Whether this person may change or delete a saved presentation (the ACLs decide; this decides what to offer). */
+/**
+ * Whether this person may change a saved presentation: its author, an
+ * editor, or someone it was shared with. The ACLs decide; this decides what
+ * to offer.
+ */
 export const canChangePresentation = (presentation: PresentationRecord | null, session: SessionContext): boolean =>
+    !presentation ||
+    session.canEdit ||
+    presentation.createdBy === session.userName ||
+    presentation.editors.includes(session.userId) ||
+    presentation.editorGroups.some(group => session.groups.includes(group))
+
+/** Whether this person may delete a saved presentation, or share it: only its author or an editor. */
+export const ownsPresentation = (presentation: PresentationRecord | null, session: SessionContext): boolean =>
     !presentation || session.canEdit || presentation.createdBy === session.userName
 
 /* -------------------------------- sections ------------------------------- */

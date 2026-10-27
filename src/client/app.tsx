@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo } from 'react'
+import { EDITOR_ROLE, USER_ROLE } from '../server/shared/constants'
 import { SessionProvider } from './data/session'
 import { log, useInspect } from './debug/log'
 import { setDebugEnabled } from './debug/store'
@@ -98,7 +99,7 @@ export default function App() {
                             title="Templater could not start"
                             lines={[
                                 session.error || 'No session.',
-                                'Templater needs the x_1040823_template.user role (or .editor to design templates).',
+                                `Templater needs the ${USER_ROLE} role (or ${EDITOR_ROLE} to design templates).`,
                             ]}
                         />
                     </div>

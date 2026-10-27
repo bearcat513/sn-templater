@@ -12,7 +12,14 @@
  * the same as expanding once.
  */
 import type { RelatedRows } from "./render";
-import { relatedKey, repeatRelatedList, type BlockCondition, type PdfBlock, type RepeatBlock } from "./template";
+import {
+  relatedKey,
+  repeatRelatedList,
+  type BlockCondition,
+  type Condition,
+  type PdfBlock,
+  type RepeatBlock,
+} from "./template";
 import { fillTokens } from "./tokens";
 
 /** Most blocks one repeat can turn into, whatever its rows and blocks: past this the rest is left out. */
@@ -25,8 +32,18 @@ const number = (text: string): number | null => {
   return cleaned && Number.isFinite(Number(cleaned)) ? Number(cleaned) : null;
 };
 
-/** Whether a condition holds, its value and comparison filled from these values. */
-export function holds(condition: BlockCondition, values: Record<string, string>): boolean {
+/**
+ * Whether a condition holds, its value and comparison filled from these
+ * values. A group holds when all (or any) of its conditions do; an empty
+ * group holds, as no condition at all would.
+ */
+export function holds(condition: Condition, values: Record<string, string>): boolean {
+  if ("all" in condition) return condition.all.every(entry => holds(entry, values));
+  if ("any" in condition) return !condition.any.length || condition.any.some(entry => holds(entry, values));
+  return compares(condition, values);
+}
+
+function compares(condition: BlockCondition, values: Record<string, string>): boolean {
   const value = normal(fillTokens(condition.value, values));
   const to = normal(fillTokens(condition.to ?? "", values));
   switch (condition.test) {
@@ -82,7 +99,11 @@ function expandRepeat(
   values: Record<string, string>,
   related: Record<string, RelatedRows>,
 ): PdfBlock[] {
-  const rows = related[relatedKey(repeatRelatedList(block))]?.rows ?? [];
+  const fetched = related[relatedKey(repeatRelatedList(block))]?.rows ?? [];
+  // The filter sees each row as it was fetched; the rows it keeps are numbered among themselves.
+  const rows = block.where
+    ? fetched.filter((row, index) => holds(block.where!, { ...values, ...rowValues(row, index, fetched.length) }))
+    : fetched;
   if (!rows.length) return block.emptyText ? [{ type: "text", text: block.emptyText }] : [];
   const out: PdfBlock[] = [];
   rows.forEach((row, index) => {

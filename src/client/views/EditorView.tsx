@@ -3,7 +3,7 @@ import { Designer } from '../designer/Designer'
 import { HistoryPanel } from '../designer/HistoryPanel'
 import { PublishModal } from '../designer/PublishModal'
 import { ChartEditorView } from './ChartEditorView'
-import { storePictures } from '../data/pictures'
+import { openPictures, storePictures } from '../data/pictures'
 import { useSession } from '../data/session'
 import { openTemplate } from '../data/templates'
 import { describeError, log, useInspect } from '../debug/log'
@@ -20,7 +20,7 @@ import { Icon } from '../ui/icons'
 import { Badge, Button, Field, Input, Notice, NumberInput, Segmented, Spinner, Switch, Textarea } from '../ui/controls'
 import { ConfirmModal, Menu, useToast } from '../ui/overlays'
 import { NarrowNotice } from '../ui/NarrowNotice'
-import { TablePicker } from './common'
+import { TablePicker, droppedNote } from './common'
 
 type Meta = {
     name: string
@@ -145,11 +145,19 @@ export function EditorView({ id, navigate }: { id: string; navigate: Navigate })
     const publishesOnSave = Boolean(record && record.version <= 1 && !record.hasDraft)
 
     const unsaved = useMemo<Unsaved | null>(() => (meta && template ? { meta, template } : null), [meta, template])
+    const recordId = record?.sysId ?? ''
+    // The copy names the template's saved pictures; they are opened again before it is offered.
+    const openKept = useCallback(
+        async (kept: Unsaved | null) =>
+            kept ? { ...kept, template: await openPictures(kept.template, TEMPLATE_TABLE, recordId) } : kept,
+        [recordId]
+    )
     const local = useLocalDraft<Unsaved | null>(
         canEdit && record ? `template:${record.sysId}` : null,
         unsaved,
         dirty,
-        record?.modCount ?? 0
+        record?.modCount ?? 0,
+        openKept
     )
     const leftOver = local.found?.value && snapshot(local.found.value.meta, local.found.value.template) !== saved
     // A kept copy that matches what is saved is nothing to offer: forget it, and keep the next one.
@@ -476,6 +484,7 @@ export function EditorView({ id, navigate }: { id: string; navigate: Navigate })
                                     ? ' The template has been saved since then, so restoring them replaces what is there now when you save.'
                                     : ''
                             }`,
+                            ...droppedNote(local.found.droppedPictures),
                         ]}
                     >
                         <div className="tp-row">

@@ -1,70 +1,91 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useReducer } from 'react'
 
 const LIMIT = 100
 
 /** Changes with the same key this close together are one step to undo: a drag, a run of typing. */
-const MERGE_WINDOW = 1200
+export const MERGE_WINDOW = 1200
 
-type State<T> = { past: T[]; present: T; future: T[] }
+export type HistoryState<T> = {
+    past: T[]
+    present: T
+    future: T[]
+    /** The last change's merge key and when it was made, for folding the next one into it. */
+    last: { key: string; at: number } | null
+}
+
+export type HistoryAction<T> =
+    | { type: 'set'; next: T | ((current: T) => T); merge?: string; at: number }
+    | { type: 'undo' }
+    | { type: 'redo' }
+    | { type: 'reset'; value: T }
+
+export const startHistory = <T>(value: T): HistoryState<T> => ({ past: [], present: value, future: [], last: null })
 
 /**
- * A value with undo and redo.
+ * Undo and redo, as a pure reducer.
  *
  * Every change is a step, except that changes carrying the same `merge` key
  * in quick succession fold into the step before them — so dragging a shape
  * across the slide, or typing a sentence into it, undoes in one go rather
- * than one pixel or one letter at a time.
+ * than one pixel or one letter at a time. A change that hands back the very
+ * same value is no step at all.
  */
-export function useHistory<T>(initial: T) {
-    const [state, setState] = useState<State<T>>({ past: [], present: initial, future: [] })
-    const last = useRef<{ key: string; at: number } | null>(null)
-
-    const set = useCallback((next: T | ((current: T) => T), merge?: string) => {
-        const now = Date.now()
-        const folds = Boolean(merge && last.current?.key === merge && now - last.current.at < MERGE_WINDOW)
-        last.current = merge ? { key: merge, at: now } : null
-        setState(current => {
-            const value = typeof next === 'function' ? (next as (current: T) => T)(current.present) : next
-            if (Object.is(value, current.present)) return current
+export function historyReducer<T>(state: HistoryState<T>, action: HistoryAction<T>): HistoryState<T> {
+    switch (action.type) {
+        case 'set': {
+            const value =
+                typeof action.next === 'function' ? (action.next as (current: T) => T)(state.present) : action.next
+            const folds = Boolean(
+                action.merge && state.last?.key === action.merge && action.at - state.last.at < MERGE_WINDOW
+            )
+            const last = action.merge ? { key: action.merge, at: action.at } : null
+            if (Object.is(value, state.present)) return state.last === last ? state : { ...state, last }
             return {
-                past: folds ? current.past : [...current.past, current.present].slice(-LIMIT),
+                past: folds ? state.past : [...state.past, state.present].slice(-LIMIT),
                 present: value,
                 future: [],
+                last,
             }
-        })
-    }, [])
-
-    const undo = useCallback(() => {
-        last.current = null
-        setState(current =>
-            current.past.length
+        }
+        case 'undo':
+            return state.past.length
                 ? {
-                      past: current.past.slice(0, -1),
-                      present: current.past[current.past.length - 1]!,
-                      future: [current.present, ...current.future],
+                      past: state.past.slice(0, -1),
+                      present: state.past[state.past.length - 1]!,
+                      future: [state.present, ...state.future],
+                      last: null,
                   }
-                : current
-        )
-    }, [])
-
-    const redo = useCallback(() => {
-        last.current = null
-        setState(current =>
-            current.future.length
+                : state
+        case 'redo':
+            return state.future.length
                 ? {
-                      past: [...current.past, current.present],
-                      present: current.future[0]!,
-                      future: current.future.slice(1),
+                      past: [...state.past, state.present],
+                      present: state.future[0]!,
+                      future: state.future.slice(1),
+                      last: null,
                   }
-                : current
-        )
-    }, [])
+                : state
+        case 'reset':
+            return startHistory(action.value)
+    }
+}
 
+/** A value with undo and redo: `historyReducer` in a component. */
+export function useHistory<T>(initial: T) {
+    const [state, dispatch] = useReducer(
+        historyReducer as (state: HistoryState<T>, action: HistoryAction<T>) => HistoryState<T>,
+        initial,
+        startHistory
+    )
+
+    const set = useCallback(
+        (next: T | ((current: T) => T), merge?: string) => dispatch({ type: 'set', next, merge, at: Date.now() }),
+        []
+    )
+    const undo = useCallback(() => dispatch({ type: 'undo' }), [])
+    const redo = useCallback(() => dispatch({ type: 'redo' }), [])
     /** Starts over from a value, with nothing to undo — a presentation just opened. */
-    const reset = useCallback((value: T) => {
-        last.current = null
-        setState({ past: [], present: value, future: [] })
-    }, [])
+    const reset = useCallback((value: T) => dispatch({ type: 'reset', value }), [])
 
     return {
         value: state.present,

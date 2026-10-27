@@ -1,9 +1,10 @@
 import { TEMPLATE_KINDS as KINDS, type TemplateKind } from '../engine/template'
-import { assertUnchanged, getJson, getList, query, request } from './http'
+import { getJson, getList, query, request, saveUnchanged } from './http'
 import { PRESENTATION_TABLE } from './presentations'
 
-export const TEMPLATE_TABLE = 'x_1040823_template_template'
-export const VERSION_TABLE = 'x_1040823_template_version'
+import { TEMPLATE_TABLE, VERSION_TABLE } from '../../server/shared/constants'
+
+export { TEMPLATE_TABLE, VERSION_TABLE }
 const BASE = `/api/now/table/${TEMPLATE_TABLE}`
 
 /** A template record as the app works with it. */
@@ -155,7 +156,11 @@ export const TemplateService = {
         input: Partial<TemplateInput>,
         options: { expect?: number } = {}
     ): Promise<TemplateRecord> {
-        if (options.expect !== undefined) await assertUnchanged(TEMPLATE_TABLE, sysId, options.expect)
+        if (options.expect !== undefined) {
+            // Compared and written on the instance in one go; then read back as the Table API returns it.
+            await saveUnchanged(TEMPLATE_TABLE, sysId, options.expect, toApi(input))
+            return TemplateService.get(sysId)
+        }
         const { result } = await getJson<{ result: ApiTemplate }>(one(sysId), {
             method: 'PATCH',
             body: JSON.stringify(toApi(input)),

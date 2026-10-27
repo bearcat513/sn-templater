@@ -9,6 +9,8 @@ import { Icon } from '../ui/icons'
 import { IconButton, cx } from '../ui/controls'
 import { paginate, type Slide } from './paginate'
 import { SlideView } from './SlideView'
+import { useBroadcast } from './useLive'
+import { followUrl, type LiveState } from '../services/collaboration'
 
 type Props = {
     template: PdfTemplate
@@ -24,6 +26,10 @@ type Props = {
     /** Opens the slide builder on this deck. */
     onEdit?: () => void
     editLabel?: string
+    /** A saved presentation, and who is presenting it: they can share a link that follows them. */
+    live?: { presentation: string; presenter: string }
+    /** Following someone else's session: the presenter moves to where they are. */
+    following?: LiveState | null
 }
 
 /** How many build steps a slide has: its elements that wait for a click. */
@@ -48,6 +54,8 @@ export function Presenter({
     startAt = 0,
     onEdit,
     editLabel = 'Edit slides',
+    live,
+    following,
 }: Props) {
     const slides = useMemo(() => arranged ?? paginate(template, job), [arranged, template, job])
     const [index, setIndex] = useState(startAt)
@@ -98,6 +106,34 @@ export function Presenter({
     useEffect(() => {
         if (index > count - 1) setIndex(Math.max(0, count - 1))
     }, [count, index])
+
+    /* ------------------------------ presenting live ------------------------- */
+
+    const broadcast = useBroadcast(live, slides[index]?.key ?? '', step)
+    const [copied, setCopied] = useState(false)
+    const shareFollowLink = async () => {
+        if (!live) return
+        try {
+            const id = await broadcast.start()
+            await navigator.clipboard?.writeText(followUrl(live.presentation, id))
+            setCopied(true)
+        } catch {
+            setCopied(false)
+        }
+    }
+
+    // A follower goes where the presenter is, build steps and all.
+    useEffect(() => {
+        if (!following || following.ended) return
+        const target = slides.findIndex(entry => entry.key === following.slide)
+        if (target === -1) return
+        setDirection(target < index ? -1 : 1)
+        setIndex(target)
+        setStep(Math.min(following.step, stepsOf(slides[target])))
+        setAnimate(following.step > 0 ? following.step - 1 : undefined)
+        // Only the presenter's moves move the follower; their own browsing does not snap back until the next one.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [following, slides])
 
     /* ------------------------------ full screen ----------------------------- */
 
@@ -197,6 +233,27 @@ export function Presenter({
                     <span className="tp-truncate">{title}</span>
                 </div>
                 <div className="tp-row">
+                    {following && (
+                        <span className="tp-presenter__live" role="status">
+                            {following.ended
+                                ? `${following.presenterName || 'The presenter'} has finished presenting.`
+                                : `Following ${following.presenterName || 'the presenter'}`}
+                        </span>
+                    )}
+                    {live && (
+                        <IconButton
+                            icon={copied ? 'check' : 'link'}
+                            label={
+                                broadcast.liveId
+                                    ? copied
+                                        ? 'Follow-along link copied: anyone who opens it sees your slide'
+                                        : 'Copy the follow-along link again'
+                                    : 'Present with followers: copy a link that follows your slides'
+                            }
+                            disabled={broadcast.starting}
+                            onClick={() => void shareFollowLink()}
+                        />
+                    )}
                     {onEdit && <IconButton icon="layers" label={editLabel} onClick={onEdit} />}
                     <IconButton
                         icon="notes"

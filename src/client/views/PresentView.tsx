@@ -19,6 +19,7 @@ import { PRESENTATION_TABLE, PresentationService, type PresentationRecord } from
 import { TemplateService } from '../services/templates'
 import { arrange, shown, type Slide } from '../slides/paginate'
 import { Presenter } from '../slides/Presenter'
+import { useFollow } from '../slides/useLive'
 import { Icon } from '../ui/icons'
 import { Button, Field, Input, Notice, Spinner, Switch } from '../ui/controls'
 import { ConfirmModal, Menu, useToast } from '../ui/overlays'
@@ -127,6 +128,8 @@ export function PresentView({ params, navigate }: { params: URLSearchParams; nav
     }
 
     const fromLink = params.get('presentation')
+    // `follow` names someone's live session: the presenter keeps to their slide.
+    const follow = useFollow(params.get('follow'))
     useEffect(() => {
         if (fromLink) void presentSaved(fromLink)
         // Once, for the address the view was opened at.
@@ -230,6 +233,12 @@ export function PresentView({ params, navigate }: { params: URLSearchParams; nav
                 }
                 editLabel={deck.presentation ? 'Edit in the slide builder' : 'Arrange and save in the slide builder'}
                 recordUrl={recordLink}
+                live={
+                    deck.presentation && !params.get('follow')
+                        ? { presentation: deck.presentation.sysId, presenter: session.userId }
+                        : undefined
+                }
+                following={follow.state}
             />
         )
     }

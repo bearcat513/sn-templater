@@ -7,6 +7,15 @@ import {
     GlideRecordSecure,
     GlideTableHierarchy,
 } from '@servicenow/glide'
+import {
+    DEBUG_PROPERTY,
+    DELIVERY_TABLE,
+    EDITOR_ROLE,
+    MAX_RECIPIENTS,
+    PRESENTATION_TABLE,
+    TEMPLATE_TABLE,
+    USER_ROLE,
+} from './shared/constants.ts'
 
 /**
  * The scripted REST API behind the Templater UI page.
@@ -21,12 +30,12 @@ import {
  *   only tells you a table at a time.
  * - **Which tables point at it?** The candidates for a related list.
  *
- * And it sends the one thing the browser cannot: an email, with a link to a
- * PDF the browser has attached to a record.
+ * And it does two things the browser cannot: send an email, with a link to a
+ * PDF the browser has attached to a record, and save a template or
+ * presentation only if nobody else has saved it since it was opened — the
+ * check and the write in one transaction.
  */
 
-const USER_ROLE = 'x_1040823_template.user'
-const DEBUG_PROPERTY = 'x_1040823_template.debug'
 const TABLE_NAME = /^[a-z0-9_]{1,80}$/
 const MAX_RELATIONSHIPS = 400
 
@@ -206,10 +215,15 @@ function relationshipsOf(table: string) {
     return found
 }
 
-/** GET /me — who is rendering, today's date in their own format, and whether debugging is on. */
+/**
+ * GET /me — who is rendering, today's date in their own format, their time
+ * zone and language (so dates and numbers drawn in the browser match the
+ * instance, wherever the laptop is), and whether debugging is on.
+ */
 export function getContext(_request: Request, response: Response) {
     if (!allowed(response)) return
     const user = gs.getUser()
+    const session = gs.getSession()
     response.setBody({
         userId: String(gs.getUserID()),
         userName: String(gs.getUserName()),
@@ -217,16 +231,29 @@ export function getContext(_request: Request, response: Response) {
         email: String(user.getEmail() || ''),
         date: String(new GlideDate().getDisplayValue()),
         dateTime: String(new GlideDateTime().getDisplayValue()),
-        canEdit: gs.hasRole('x_1040823_template.editor'),
+        timeZone: String((session && session.getTimeZoneName()) || ''),
+        language: String(user.getLanguage() || 'en'),
+        dateFormat: String(user.getDateFormat() || ''),
+        timeFormat: String(user.getTimeFormat() || ''),
+        // For telling who may change a presentation shared with a group; the ACLs decide.
+        groups: groupsOf(user),
+        canEdit: gs.hasRole(EDITOR_ROLE),
         debug: debugOn(),
     })
+}
+
+/** The sys_ids of the groups someone is in. The platform hands back a Java list, not an array. */
+function groupsOf(user: ReturnType<typeof gs.getUser>): string[] {
+    const groups: string[] = []
+    const list = user.getMyGroups() as unknown as { size(): number; get(index: number): unknown }
+    for (let i = 0; list && i < list.size(); i++) groups.push(String(list.get(i)))
+    return groups
 }
 
 /* ------------------------------------------------------------------ email */
 
 const EMAIL = /^[^\s@<>(),;:"]+@[^\s@<>(),;:"]+\.[^\s@<>(),;:"]+$/
 const SYS_ID = /^[0-9a-f]{32}$/
-const MAX_RECIPIENTS = 20
 
 const escapeHtml = (text: string): string =>
     text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
@@ -239,6 +266,11 @@ const escapeHtml = (text: string): string =>
  * record's: the email can only point at a file its sender can already open.
  * The file itself is not sent — the link opens it on the instance, where
  * each recipient's own access decides whether they can.
+ *
+ * A batch PDF has no record of its own: the browser makes a delivery
+ * (x_1040823_template_delivery) to hold it and sends that. Sending one
+ * writes who it went to on it — which is what lets them open it — and it
+ * can be sent only once.
  */
 export function sendEmail(request: Request, response: Response) {
     timed('POST /email', response, () => emailRoute(request, response))
@@ -248,7 +280,9 @@ function emailRoute(request: Request, response: Response) {
     if (!allowed(response)) return
     const input = (request.body && request.body.data) || {}
     const body = input as Record<string, unknown>
-    const table = readableTable(String(body.table || ''), response)
+    // A delivery's read ACL is about the record — its sender, its recipients —
+    // so the table as a whole is not asked; reading the record below checks it.
+    const table = body.table === DELIVERY_TABLE ? DELIVERY_TABLE : readableTable(String(body.table || ''), response)
     if (!table) return
 
     const sysId = String(body.sysId || '')
@@ -281,10 +315,24 @@ function emailRoute(request: Request, response: Response) {
             .slice(0, 200) || String(attachment.getValue('file_name'))
     const message = String(body.message || '').slice(0, 4000)
 
+    const delivery = table === DELIVERY_TABLE
+    if (delivery) {
+        if (String(record.getValue('sys_created_by')) !== String(gs.getUserName())) {
+            refuse(response, 403, 'Only its sender can send a delivery.')
+            return
+        }
+        if (Number(record.getValue('sent')) > 0) {
+            refuse(response, 409, 'That delivery has already been sent.')
+            return
+        }
+    }
+
     const instance = String(gs.getProperty('glide.servlet.uri', '')).replace(/\/+$/, '')
     const fileUrl = instance + '/sys_attachment.do?sys_id=' + attachmentId
     const recordUrl = instance + '/' + table + '.do?sys_id=' + sysId
-    const label = String(record.getDisplayValue(String(record.getDisplayName())) || sysId)
+    const label = delivery
+        ? String(record.getValue('subject') || 'Templater delivery')
+        : String(record.getDisplayValue(String(record.getDisplayName())) || sysId)
     const sender = String(gs.getUserDisplayName())
 
     const html =
@@ -294,15 +342,15 @@ function emailRoute(request: Request, response: Response) {
         '">' +
         escapeHtml(String(attachment.getValue('file_name'))) +
         '</a>' +
-        ' — attached to <a href="' +
-        escapeHtml(recordUrl) +
-        '">' +
-        escapeHtml(label) +
-        '</a>.</p>' +
+        (delivery
+            ? ' — ' + escapeHtml(String(record.getValue('records') || '0')) + ' records.</p>'
+            : ' — attached to <a href="' + escapeHtml(recordUrl) + '">' + escapeHtml(label) + '</a>.</p>') +
         '<p style="color:#666">Sent by ' +
         escapeHtml(sender) +
         ' with Templater. ' +
-        'The link opens the file on the instance; you need access to the record to open it.</p>'
+        (delivery
+            ? 'The link opens the file on the instance; sign in as yourself to open it.</p>'
+            : 'The link opens the file on the instance; you need access to the record to open it.</p>')
 
     const email = new GlideEmailOutbound()
     email.setSubject(subject)
@@ -311,6 +359,18 @@ function emailRoute(request: Request, response: Response) {
     if (replyTo) email.setReplyTo(replyTo)
     for (const address of to) email.addAddress('to', address)
     email.save()
+
+    if (delivery) {
+        // Written as the system: the sender's own write ACL ends with the send.
+        const sent = new GlideRecord(DELIVERY_TABLE)
+        if (sent.get(sysId)) {
+            sent.setValue('recipients', to.join(',').slice(0, 2000))
+            sent.setValue('subject', subject)
+            sent.setValue('message', message)
+            sent.setValue('sent', String(to.length))
+            sent.update()
+        }
+    }
 
     gs.info(
         '[Templater] ' +
@@ -325,4 +385,106 @@ function emailRoute(request: Request, response: Response) {
             to.length
     )
     response.setBody({ sent: to.length })
+}
+
+/* ------------------------------------------------------------------- save */
+
+/**
+ * What the save route may change, per table: the fields the designer and
+ * the slide builder write, and nothing else.
+ */
+const SAVABLE: Record<string, string[]> = {
+    [TEMPLATE_TABLE]: [
+        'name',
+        'kind',
+        'table',
+        'description',
+        'active',
+        'query',
+        'order_by',
+        'record_limit',
+        'body',
+        'draft_body',
+        'publish_note',
+    ],
+    [PRESENTATION_TABLE]: [
+        'name',
+        'template',
+        'title',
+        'query',
+        'order_by',
+        'record_limit',
+        'body',
+        'draft_body',
+        'publish_note',
+        'editors',
+        'editor_groups',
+    ],
+}
+
+/**
+ * POST /save/{table}/{sys_id} — saves a template or presentation only if
+ * nobody else has since it was read.
+ *
+ * Body: `{ expect, fields }`: the record's update counter (sys_mod_count)
+ * when it was read, and the fields to write. The counter is compared and the
+ * fields written in the same transaction, so two people saving at once
+ * cannot both win. A record changed since answers 409 with who changed it
+ * and when; otherwise the fields are written through the caller's ACLs, and
+ * the answer is the new counter.
+ */
+export function saveRecord(request: Request, response: Response) {
+    timed('POST /save/' + String(request.pathParams.table || ''), response, () => saveRoute(request, response))
+}
+
+function saveRoute(request: Request, response: Response) {
+    if (!allowed(response)) return
+    const table = String(request.pathParams.table || '')
+    const sysId = String(request.pathParams.sys_id || '')
+    const savable = SAVABLE[table]
+    if (!savable) {
+        refuse(response, 404, 'Only templates and presentations are saved here.')
+        return
+    }
+    const record = new GlideRecordSecure(table)
+    if (!SYS_ID.test(sysId) || !record.get(sysId)) {
+        refuse(response, 404, 'That could not be found, or you cannot read it.')
+        return
+    }
+    if (!record.canWrite()) {
+        refuse(response, 403, 'You cannot change that.')
+        return
+    }
+
+    const input = ((request.body && request.body.data) || {}) as { expect?: unknown; fields?: unknown }
+    const expect = Number(input.expect)
+    const current = Number(record.getValue('sys_mod_count')) || 0
+    if (Number.isFinite(expect) && expect !== current) {
+        response.setStatus(409)
+        response.setBody({
+            error: {
+                message: 'Someone else saved this since you opened it.',
+                detail: {
+                    updatedBy: String(
+                        record.getDisplayValue('sys_updated_by') || record.getValue('sys_updated_by') || ''
+                    ),
+                    updatedOn: String(record.getDisplayValue('sys_updated_on') || ''),
+                },
+            },
+        })
+        return
+    }
+
+    const fields = (input.fields && typeof input.fields === 'object' ? input.fields : {}) as Record<string, unknown>
+    for (const name of Object.keys(fields)) {
+        if (savable.indexOf(name) === -1) continue
+        const value = fields[name]
+        record.setValue(name, value === null || value === undefined ? '' : String(value))
+    }
+    if (!record.update()) {
+        const messages = (gs.getErrorMessages() || []).map(String)
+        refuse(response, 400, messages.join(' ') || 'It could not be saved.')
+        return
+    }
+    response.setBody({ sys_mod_count: Number(record.getValue('sys_mod_count')) || current + 1 })
 }

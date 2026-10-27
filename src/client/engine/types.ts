@@ -51,6 +51,8 @@ export type PdfHeader = {
   color?: string;
   rule?: boolean;
   firstPageOnly?: boolean;
+  /** Drawn only on the pages of records this holds for; absent is every page. */
+  when?: Condition;
 };
 
 /** How the document is set, as opposed to what is on it. */
@@ -82,6 +84,8 @@ export type PdfWatermark = {
   size?: number;
   opacity?: number;
   angle?: number;
+  /** Stamped only on the pages of records this holds for: DRAFT while `{{raw.state}}` is new. */
+  when?: Condition;
 };
 
 export type BlockAlign = "left" | "center" | "right";
@@ -292,6 +296,15 @@ export type BlockCondition = {
 export type ConditionTest = "empty" | "notEmpty" | "equals" | "notEquals" | "contains" | "greater" | "less";
 
 /**
+ * Several conditions at once: every one of them (`all`), or at least one
+ * (`any`). Groups nest, at most two deep — "P1 and (unassigned or overdue)".
+ */
+export type ConditionGroup = { all: Condition[] } | { any: Condition[] };
+
+/** A single comparison, or a group of them. */
+export type Condition = BlockCondition | ConditionGroup;
+
+/**
  * Its blocks, once for each record that references this one — a heading and
  * a callout per incident task, a slide per approval. Inside, `{{row.<field>}}`
  * is the row's display value, `{{row.raw.<field>}}` its stored value, and
@@ -305,6 +318,13 @@ export type RepeatBlock = {
   query?: string;
   orderBy?: string;
   limit?: number;
+  /**
+   * Which of the fetched rows are drawn, tested with the row's own tokens —
+   * `{{row.state}}`, `{{row.raw.priority}}` — as well as the record's. A
+   * filter on top of `query`, for what an encoded query cannot say. The
+   * rows left are what `{{row.index}}` and `{{row.count}}` count.
+   */
+  where?: Condition;
   /** Repeated per row. A repeat inside a repeat is not allowed. */
   blocks: PdfBlock[];
   /** Printed once when there are no rows. Empty prints nothing. */
@@ -382,12 +402,14 @@ export type PdfBlock = (
   | { type: "pageBreak" }
 ) & {
   /** Drawn only when this holds; absent is always. */
-  when?: BlockCondition;
+  when?: Condition;
 };
 
 export type BlockType = PdfBlock["type"];
 
 export type PdfTemplate = {
+  /** The body format's version (src/server/shared/schema.ts). Absent is 1. */
+  version?: number;
   page: PdfPageSetup;
   style?: PdfStyle;
   header?: PdfHeader;
@@ -397,6 +419,8 @@ export type PdfTemplate = {
    * a title slide for a deck. Its tokens are the deck's, not a record's.
    */
   cover?: PdfBlock[];
+  /** The cover is drawn only when this holds, tested with the batch's tokens. */
+  coverWhen?: Condition;
   blocks: PdfBlock[];
   footer: {
     text: string;

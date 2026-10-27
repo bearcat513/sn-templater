@@ -11,6 +11,12 @@
  * The editor parses through this too, so a body written by hand against the
  * Table API opens with exactly the defaults it will be stored with.
  */
+import { CONDITION_TESTS, TEMPLATE_BODY_VERSION, migrateTemplateBody } from "../../server/shared/schema";
+import {
+  MAX_BODY_LENGTH,
+  MAX_NAME_LENGTH,
+  MAX_REPEAT_BLOCKS as SHARED_MAX_REPEAT_BLOCKS,
+} from "../../server/shared/constants";
 import { isStorablePicture } from "./image";
 import { DEFAULT_MARGINS, PAGE_SIZES } from "./pdf";
 import { FONT_FAMILIES, type FontFamily } from "./pdfFonts";
@@ -27,6 +33,7 @@ import {
   starterTemplate,
   type BlockAlign,
   type BlockCondition,
+  type Condition,
   type ConditionTest,
   type CalloutTone,
   type ChartKind,
@@ -49,8 +56,8 @@ export const invalid = (error: string): { ok: false; error: string } => ({ ok: f
 const valid = <T>(value: T): { ok: true; value: T } => ({ ok: true, value });
 
 /** A template body is JSON that carries its own pictures, so it gets room for them. */
-export const MAX_TEMPLATE_BODY_LENGTH = 3_000_000;
-export const MAX_TEMPLATE_NAME_LENGTH = 100;
+export const MAX_TEMPLATE_BODY_LENGTH = MAX_BODY_LENGTH;
+export const MAX_TEMPLATE_NAME_LENGTH = MAX_NAME_LENGTH;
 
 /* ------------------------------- scalars --------------------------------- */
 
@@ -172,14 +179,37 @@ function readWatermark(raw: unknown): PdfWatermark | undefined {
     ...(input.size !== undefined ? { size: bounded(input.size, 84, 8, 400) } : {}),
     ...(input.opacity !== undefined ? { opacity: bounded(input.opacity, 0.08, 0.01, 1) } : {}),
     ...(input.angle !== undefined ? { angle: bounded(input.angle, 45, -90, 90) } : {}),
+    ...(readCondition(input.when) ? { when: readCondition(input.when) } : {}),
   };
 }
 
-const CONDITION_TESTS: ConditionTest[] = ["empty", "notEmpty", "equals", "notEquals", "contains", "greater", "less"];
+/** Conditions in one group, at most; and groups nest at most this deep. */
+const MAX_GROUP = 12;
+const MAX_GROUP_DEPTH = 2;
 
-/** A block's condition. One with no value is no condition; an unknown test is `notEmpty`. */
-function readCondition(raw: unknown): BlockCondition | undefined {
+/**
+ * A condition: one comparison, or a group of them. One with no value is no
+ * condition, an unknown test is `notEmpty`, and a group left empty — or one
+ * nested deeper than allowed — is no condition either.
+ */
+function readCondition(raw: unknown, depth = 0): Condition | undefined {
   const input = asRecord(raw);
+  const groupOf = Array.isArray(input.all) ? "all" : Array.isArray(input.any) ? "any" : null;
+  if (groupOf) {
+    if (depth >= MAX_GROUP_DEPTH) return undefined;
+    const entries = (input[groupOf] as unknown[])
+      .slice(0, MAX_GROUP)
+      .map(entry => readCondition(entry, depth + 1))
+      .filter((entry): entry is Condition => entry !== undefined);
+    if (!entries.length) return undefined;
+    // A group of one is that one condition.
+    if (entries.length === 1) return entries[0];
+    return groupOf === "all" ? { all: entries } : { any: entries };
+  }
+  return readComparison(input);
+}
+
+function readComparison(input: Record<string, unknown>): BlockCondition | undefined {
   const value = text(input.value, 500);
   if (!value) return undefined;
   const test = oneOf<ConditionTest>(input.test, CONDITION_TESTS, "notEmpty");
@@ -458,6 +488,7 @@ function readOwnBlock(raw: unknown, nested: boolean): PdfBlock | null {
             }
           : {}),
         limit: Math.trunc(bounded(input.limit, DEFAULT_RELATED_LIMIT, 1, MAX_RELATED_ROWS)),
+        ...(readCondition(input.where) ? { where: readCondition(input.where) } : {}),
         blocks: (Array.isArray(input.blocks) ? input.blocks : [])
           .slice(0, MAX_REPEAT_BLOCKS)
           .map(entry => readBlock(entry, true))
@@ -475,7 +506,7 @@ function readOwnBlock(raw: unknown, nested: boolean): PdfBlock | null {
 }
 
 /** Most blocks inside one repeat. */
-const MAX_REPEAT_BLOCKS = 40;
+const MAX_REPEAT_BLOCKS = SHARED_MAX_REPEAT_BLOCKS;
 
 const readBlocks = (raw: unknown): PdfBlock[] =>
   (Array.isArray(raw) ? raw : [])
@@ -511,6 +542,9 @@ export function readTemplate(
   }
 
   if (!isRecord(source)) return invalid("A template must be an object with `page` and `blocks`.");
+  // An older body is brought up to date first; one from a newer version is read for what this one knows.
+  source = migrateTemplateBody(source);
+  if (!isRecord(source)) return invalid("A template must be an object with `page` and `blocks`.");
 
   const page = asRecord(source.page);
   const margins = asRecord(page.margins);
@@ -531,10 +565,13 @@ export function readTemplate(
     ...(optionalColor(header.color) ? { color: optionalColor(header.color) } : {}),
     ...(header.rule === true ? { rule: true } : {}),
     ...(header.firstPageOnly === true ? { firstPageOnly: true } : {}),
+    ...(readCondition(header.when) ? { when: readCondition(header.when) } : {}),
   };
   const background = optionalColor(page.background);
+  const coverWhen = cover.length ? readCondition(source.coverWhen) : undefined;
 
   return valid({
+    version: TEMPLATE_BODY_VERSION,
     // Absent stays absent: a template that has never had a letterhead does not
     // carry an empty one around for the rest of its life.
     ...(Object.keys(letterhead).length ? { header: letterhead } : {}),
@@ -559,6 +596,7 @@ export function readTemplate(
     style: readStyle(source.style, fontSize),
     ...(watermark ? { watermark } : {}),
     ...(cover.length ? { cover } : {}),
+    ...(coverWhen ? { coverWhen } : {}),
     blocks,
     footer: {
       text: text(footer.text, 300),

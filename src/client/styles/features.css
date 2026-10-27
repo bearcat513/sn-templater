@@ -306,6 +306,26 @@
     border-top: 1px dashed var(--tp-border);
 }
 
+.tp-condition__row {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--tp-space-2);
+}
+
+.tp-condition__row > .tp-grid {
+    flex: 1;
+}
+
+.tp-condition__row > .tp-icon-btn {
+    margin-top: 22px;
+}
+
+.tp-condition__nested {
+    padding: var(--tp-space-2) var(--tp-space-3);
+    border-radius: var(--tp-radius-sm);
+    background: var(--tp-surface-sunken);
+}
+
 /* A wrapper that passes the editor's height on to what is inside it. */
 .tp-grow-column {
     flex: 1;

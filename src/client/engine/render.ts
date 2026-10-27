@@ -19,7 +19,7 @@ import { decodeImage, imageBox, type EmbeddableImage } from "./image";
 import { recordUrl, safeUrl } from "./links";
 import { PdfDocument, DEFAULT_MARGINS, type TableCell, type TableColumn } from "./pdf";
 import { measureText, type FontFamily } from "./pdfFonts";
-import { expandBlocks } from "./expand";
+import { expandBlocks, holds } from "./expand";
 import { fillTokens } from "./tokens";
 import {
   DEFAULT_PAGE,
@@ -85,7 +85,7 @@ type RenderContext = {
  */
 export function renderPdfDocument(template: PdfTemplate, job: RenderJob): PdfRenderResult {
   const sections: SlideSource[] = [];
-  if (template.cover?.length) {
+  if (template.cover?.length && (!template.coverWhen || holds(template.coverWhen, job.coverValues))) {
     sections.push({ owner: -1, blocks: template.cover, values: job.coverValues, related: {} });
   }
   job.records.forEach((record, index) =>
@@ -257,6 +257,7 @@ function renderSections(
     document.onEachPage(
       (doc, current) => {
         if (!furnished(current)) return;
+        if (watermark.when && !holds(watermark.when, infoOn(current).values)) return;
         const text = fillOn(current, watermark.text);
         doc.drawWatermark(watermark.uppercase ? text.toUpperCase() : text, {
           color: watermark.color ?? ownPage.accentColor,
@@ -288,7 +289,15 @@ function renderSections(
   for (const own of furnishers) {
     const ownPage = lookOf(own).page;
     const furnished = furnishedBy(own);
-    renderHeader(own.header, { document, page: ownPage, fillOn, picture, sectionStart, furnished });
+    const header = own.header;
+    renderHeader(header, {
+      document,
+      page: ownPage,
+      fillOn,
+      picture,
+      sectionStart,
+      furnished: current => furnished(current) && (!header?.when || holds(header.when, infoOn(current).values)),
+    });
 
     const showPageNumbers = own.footer?.showPageNumbers !== false;
     if (!own.footer?.text && !showPageNumbers) continue;

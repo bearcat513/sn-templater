@@ -1,3 +1,4 @@
+import { API_BASE } from '../../server/shared/constants'
 import { log } from '../debug/log'
 import { isRecording, startRequest, updateRequest } from '../debug/store'
 
@@ -11,7 +12,9 @@ declare global {
 export class HttpError extends Error {
     constructor(
         message: string,
-        readonly status: number
+        readonly status: number,
+        /** What the API sent with its message, when it sent more: `error.detail`. */
+        readonly detail?: unknown
     ) {
         super(message)
     }
@@ -85,20 +88,21 @@ function recoverSession(): Promise<boolean> {
     return recovering
 }
 
-/** Why a ServiceNow API said no, in the words it used. */
-async function errorMessage(response: Response): Promise<string> {
+/** Why a ServiceNow API said no, in the words it used, and anything it sent with them. */
+async function errorOf(response: Response): Promise<{ message: string; detail?: unknown }> {
     try {
         const body = await response.json()
-        const error = body?.error
-        const message = typeof error === 'string' ? error : error?.message || error?.detail
-        if (message) return String(message)
+        const error = body?.error ?? body?.result?.error
+        const detail = error && typeof error === 'object' ? error.detail : undefined
+        const message = typeof error === 'string' ? error : error?.message || (typeof detail === 'string' ? detail : '')
+        if (message) return { message: String(message), ...(detail !== undefined ? { detail } : {}) }
     } catch {
         // Not JSON — fall through to the status line.
     }
-    if (response.status === 401) return 'Your session has expired. Reload the page to sign in again.'
-    if (response.status === 403) return 'You do not have access to that.'
-    if (response.status === 404) return 'That could not be found.'
-    return `The request failed (${response.status}).`
+    if (response.status === 401) return { message: 'Your session has expired. Reload the page to sign in again.' }
+    if (response.status === 403) return { message: 'You do not have access to that.' }
+    if (response.status === 404) return { message: 'That could not be found.' }
+    return { message: `The request failed (${response.status}).` }
 }
 
 /**
@@ -127,7 +131,10 @@ export async function request(url: string, init: RequestInit = {}, retried = fal
         log.info('http', `Signed in again; sending ${method} ${shortUrl(url)} again`)
         return request(url, init, true)
     }
-    if (!response.ok) throw new HttpError(await errorMessage(response), response.status)
+    if (!response.ok) {
+        const { message, detail } = await errorOf(response)
+        throw new HttpError(message, response.status, detail)
+    }
     return response
 }
 
@@ -230,19 +237,29 @@ export const andQuery = (...parts: (string | undefined)[]): string =>
         .join('^')
 
 /**
- * Refuses to go on when a record has been saved by someone else since it was
- * read — its update counter has moved on — so a save cannot silently write
- * over their work. The window between this check and the save is a request
- * long; that is the trade for not needing a server route of our own.
+ * Saves a template or presentation only if nobody else has since it was
+ * read — its update counter is still `expect` — through the app's own save
+ * route, which compares and writes in one transaction. On someone else's
+ * save it throws a `ConflictError` saying who and when, and writes nothing.
+ * Resolves to the record's new update counter.
  */
-export async function assertUnchanged(table: string, sysId: string, modCount: number): Promise<void> {
-    const { result } = await getJson<{ result: Record<string, { value: string; display_value: string }> }>(
-        `/api/now/table/${table}/${encodeURIComponent(sysId)}?${query({
-            sysparm_fields: 'sys_mod_count,sys_updated_by,sys_updated_on',
-            sysparm_display_value: 'all',
-        })}`
-    )
-    if ((Number(result.sys_mod_count?.value) || 0) !== modCount) {
-        throw new ConflictError(result.sys_updated_by?.display_value ?? '', result.sys_updated_on?.display_value ?? '')
+export async function saveUnchanged(
+    table: string,
+    sysId: string,
+    expect: number,
+    fields: Record<string, string>
+): Promise<number> {
+    try {
+        const body = await getJson<{ result: { sys_mod_count: number } }>(
+            `${API_BASE}/save/${encodeURIComponent(table)}/${encodeURIComponent(sysId)}`,
+            { method: 'POST', body: JSON.stringify({ expect, fields }) }
+        )
+        return Number(body.result?.sys_mod_count) || expect + 1
+    } catch (failure) {
+        if (failure instanceof HttpError && failure.status === 409) {
+            const detail = (failure.detail ?? {}) as { updatedBy?: string; updatedOn?: string }
+            throw new ConflictError(String(detail.updatedBy ?? ''), String(detail.updatedOn ?? ''))
+        }
+        throw failure
     }
 }

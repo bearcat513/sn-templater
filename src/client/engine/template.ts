@@ -28,9 +28,15 @@
  * record, and the totals block — a quote's arithmetic — gave way to `stats`,
  * a row of large figures that suits a slide.
  */
+import {
+  MAX_BLOCKS as SHARED_MAX_BLOCKS,
+  MAX_RELATED_ROWS as SHARED_MAX_RELATED_ROWS,
+} from "../../server/shared/constants";
 import { DEFAULT_MARGINS } from "./pdf";
 export type {
   BlockCondition,
+  Condition,
+  ConditionGroup,
   ConditionTest,
   RepeatBlock,
   TemplateKind,
@@ -59,6 +65,7 @@ export type {
   StarterField,
 } from "./types";
 import type {
+  Condition,
   RepeatBlock,
   TemplateKind,
   PdfPageSetup,
@@ -278,8 +285,8 @@ export const BLOCK_TYPES: { type: BlockType; label: string; description: string 
   { type: "pageBreak", label: "Page break", description: "Start the next page" },
 ];
 
-export const MAX_BLOCKS = 200;
-export const MAX_RELATED_ROWS = 500;
+export const MAX_BLOCKS = SHARED_MAX_BLOCKS;
+export const MAX_RELATED_ROWS = SHARED_MAX_RELATED_ROWS;
 export const DEFAULT_RELATED_LIMIT = 50;
 
 /* -------------------------------- starters ------------------------------- */
@@ -556,14 +563,31 @@ export const referenceToken = (block: Pick<ReferenceBlock, "field">, path: strin
 
 /** Every string in a template that tokens can live in, for collecting them. */
 export function templateStrings(template: PdfTemplate): string[] {
-  const out: string[] = [template.footer.text, template.header?.text ?? "", template.watermark?.text ?? ""];
+  const out: string[] = [
+    template.footer.text,
+    template.header?.text ?? "",
+    template.watermark?.text ?? "",
+    ...conditionStrings(template.header?.when),
+    ...conditionStrings(template.watermark?.when),
+  ];
   for (const block of [...template.blocks, ...(template.cover ?? [])]) out.push(...blockStrings(block));
   return out.filter(Boolean);
 }
 
+/**
+ * The strings a condition fills in, groups and all. The cover's condition is
+ * left out of `templateStrings`: it is tested with the batch's tokens, which
+ * are never fetched with a record.
+ */
+export function conditionStrings(condition: Condition | undefined): string[] {
+  if (!condition) return [];
+  if ("all" in condition) return condition.all.flatMap(conditionStrings);
+  if ("any" in condition) return condition.any.flatMap(conditionStrings);
+  return [condition.value, condition.to ?? ""];
+}
+
 export function blockStrings(block: PdfBlock): string[] {
-  const when = block.when ? [block.when.value, block.when.to ?? ""] : [];
-  return [...when, ...ownStrings(block)];
+  return [...conditionStrings(block.when), ...ownStrings(block)];
 }
 
 /** Tokens that belong to a repeat's row, filled by the repeat itself rather than from the record. */
@@ -573,7 +597,12 @@ function ownStrings(block: PdfBlock): string[] {
   switch (block.type) {
     case "repeat":
       // The record's own tokens inside are fetched with the record; the rows' are the repeat's.
-      return [block.emptyText ?? "", ...block.blocks.flatMap(blockStrings).map(text => text.replace(ROW_TOKEN, ""))];
+      return [
+        block.emptyText ?? "",
+        ...[...conditionStrings(block.where), ...block.blocks.flatMap(blockStrings)].map(text =>
+          text.replace(ROW_TOKEN, ""),
+        ),
+      ];
     case "heading":
     case "text":
       return [block.text];
@@ -682,7 +711,7 @@ export const chartTemplateIds = (template: PdfTemplate): string[] => [
 /** The fields of a row a repeat's blocks use: `{{row.x}}` and `{{row.raw.x}}`, not `{{row.index}}` or `{{row.count}}`. */
 export function rowFields(block: RepeatBlock): string[] {
   const fields = new Set<string>();
-  for (const text of block.blocks.flatMap(blockStrings)) {
+  for (const text of [...conditionStrings(block.where), ...block.blocks.flatMap(blockStrings)]) {
     for (const match of text.matchAll(/\{\{\s*row\.(?:raw\.)?([A-Za-z_][A-Za-z0-9_.]*)/g)) {
       if (match[1] !== "index" && match[1] !== "count") fields.add(match[1]!);
     }

@@ -20,6 +20,11 @@ export const FALLBACK_SESSION: SessionContext = {
     email: '',
     date: new Date().toLocaleDateString(),
     dateTime: new Date().toLocaleString(),
+    timeZone: '',
+    language: '',
+    dateFormat: '',
+    timeFormat: '',
+    groups: [],
     canEdit: false,
     debug: false,
 }

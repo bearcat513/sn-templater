@@ -4,6 +4,7 @@ import type { TableSchema } from '../services/schema'
 import { Button, Segmented, cx } from '../ui/controls'
 import { Icon } from '../ui/icons'
 import { BlockList } from './BlockList'
+import { ConditionFields } from './ConditionFields'
 import { FooterSection, LetterheadSection, PageSection, StyleSection, WatermarkSection } from './DocumentSections'
 import { GettingStarted } from './GettingStarted'
 import { Preview } from './Preview'
@@ -140,11 +141,20 @@ export function Designer({ template, onChange, kind, schema, title, previewRecor
                                 ) : null}
                             </div>
                             {showingCover && (
-                                <p className="tp-subtle">
-                                    Drawn once, before the first record. Record tokens are blank here — use{' '}
-                                    <code>deck.*</code>, <code>table.*</code>, <code>now.*</code> and{' '}
-                                    <code>user.*</code>.
-                                </p>
+                                <>
+                                    <p className="tp-subtle">
+                                        Drawn once, before the first record. Record tokens are blank here — use{' '}
+                                        <code>deck.*</code>, <code>table.*</code>, <code>now.*</code> and{' '}
+                                        <code>user.*</code>.
+                                    </p>
+                                    <ConditionFields
+                                        label={`Only draw the ${kind === 'deck' ? 'title slide' : 'cover'} when…`}
+                                        hint="Tested with the batch's tokens, such as {{deck.count}}."
+                                        fallback={{ value: '{{deck.count}}', test: 'greater', to: '1' }}
+                                        value={template.coverWhen}
+                                        onChange={coverWhen => onChange({ ...template, coverWhen })}
+                                    />
+                                </>
                             )}
                             <BlockList
                                 key={showingCover ? 'cover' : 'record'}

@@ -1,5 +1,5 @@
 import '@servicenow/sdk/global'
-import { IntegerColumn, ReferenceColumn, StringColumn, Table } from '@servicenow/sdk/core'
+import { BooleanColumn, IntegerColumn, ListColumn, ReferenceColumn, StringColumn, Table } from '@servicenow/sdk/core'
 
 /**
  * A saved presentation: a deck template, the records it was built from, and
@@ -19,6 +19,15 @@ import { IntegerColumn, ReferenceColumn, StringColumn, Table } from '@servicenow
  *
  * Deleting the template clears the reference rather than the presentation:
  * the custom slides are someone's work, and can be put on another deck.
+ *
+ * ## Drafts and versions
+ *
+ * Like a template's, `body` is what is *published*: what the presentation's
+ * link presents. The builder saves to `draft_body` — the body with the deck's
+ * title, records and order under `meta` — and publishing moves it into the
+ * record. Every change to `body` is numbered (`version`) and kept as a row of
+ * x_1040823_template_pres_version by the "Number presentation versions"
+ * business rule.
  */
 export const x_1040823_template_presentation = Table({
     name: 'x_1040823_template_presentation',
@@ -54,6 +63,33 @@ export const x_1040823_template_presentation = Table({
             label: 'Body',
             maxLength: 3000000,
             hint: 'The custom slides, the templates placed in sections, and the running order, as JSON. Edit it in the Templater slide builder.',
+        }),
+        draft_body: StringColumn({
+            label: 'Draft body',
+            maxLength: 3000000,
+            hint: 'Changes saved in the slide builder and not yet published, with the deck settings they change. Empty when there are none.',
+        }),
+        has_draft: BooleanColumn({ label: 'Has unpublished changes', default: false, readOnly: true }),
+        version: IntegerColumn({
+            label: 'Version',
+            default: 0,
+            readOnly: true,
+            hint: 'Counts the times the presentation has been published.',
+        }),
+        publish_note: StringColumn({
+            label: 'Publish note',
+            maxLength: 1000,
+            hint: 'Set with a publish; copied to the version it makes and then cleared.',
+        }),
+        editors: ListColumn({
+            label: 'Shared with people',
+            referenceTable: 'sys_user',
+            hint: 'People who can change it as well as its author.',
+        }),
+        editor_groups: ListColumn({
+            label: 'Shared with groups',
+            referenceTable: 'sys_user_group',
+            hint: 'Groups whose members can change it as well as its author.',
         }),
     },
 })

@@ -10,6 +10,7 @@ import {
     type PdfWatermark,
 } from '../engine/template'
 import { Collapsible, ColorField, Field, NumberInput, Select, Switch } from '../ui/controls'
+import { ConditionFields } from './ConditionFields'
 import { ImagePicker } from './ImagePicker'
 import { TokenField } from './TokenTarget'
 
@@ -293,6 +294,11 @@ export function LetterheadSection({ template, onChange, open, onToggle }: Sectio
                     label="First page of each record only"
                 />
             </div>
+            <ConditionFields
+                label="Only on the records where…"
+                value={header.when}
+                onChange={when => patch({ when })}
+            />
         </Collapsible>
     )
 }
@@ -360,6 +366,12 @@ export function WatermarkSection({ template, onChange, open, onToggle }: Section
                 checked={watermark.uppercase ?? false}
                 onChange={uppercase => patch({ uppercase: uppercase || undefined })}
                 label="In capitals"
+            />
+            <ConditionFields
+                label="Only on the records where…"
+                fallback={{ value: '{{raw.state}}', test: 'equals', to: '1' }}
+                value={watermark.when}
+                onChange={when => patch({ when })}
             />
         </Collapsible>
     )

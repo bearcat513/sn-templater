@@ -32,6 +32,24 @@ describe("renderPdfDocument", () => {
     expect(pdfText(result.bytes)).toContain("No records matched.");
   });
 
+  it("draws the cover, watermark and letterhead only where their conditions hold", () => {
+    const template = {
+      ...starterTemplate("document", [{ name: "number", label: "Number" }]),
+      cover: [{ type: "heading" as const, text: "Batch of {{deck.count}}" }],
+      coverWhen: { value: "{{deck.count}}", test: "greater" as const, to: "5" },
+      header: {
+        text: "LETTERHEAD {{record.number}}",
+        when: { value: "{{record.number}}", test: "contains" as const, to: "1" },
+      },
+      watermark: { text: "DRAFT", when: { value: "{{record.number}}", test: "contains" as const, to: "2" } },
+    };
+    const job = fixtureJob(template);
+    const text = pdfText(renderPdfDocument(template, job).bytes).join(" ");
+    expect(text).not.toContain("Batch of");
+    expect(text.match(/LETTERHEAD/g)?.length).toBe(1);
+    expect(text.match(/DRAFT/g)?.length).toBe(1);
+  });
+
   // Golden renders: each installed starter against fixture records. A change
   // to layout or text shows up here as a readable diff of what was drawn.
   it.each(GALLERY.map(entry => [entry.key, entry] as const))("renders the %s starter", (_key, entry) => {

@@ -1,18 +1,12 @@
 import React, { useMemo } from 'react'
-import {
-    MAX_RELATED_ROWS,
-    type ConditionTest,
-    type BlockCondition,
-    type PdfBlock,
-    type RepeatBlock,
-    type TemplateKind,
-} from '../engine/template'
+import { MAX_RELATED_ROWS, type RepeatBlock, type TemplateKind } from '../engine/template'
 import { useAsync } from '../hooks/useAsync'
 import { SchemaService, type TableSchema } from '../services/schema'
 import { Combobox, type ComboOption } from '../ui/Combobox'
-import { Field, NumberInput, Select, Switch, Textarea } from '../ui/controls'
+import { Field, NumberInput, Select, Textarea } from '../ui/controls'
 import { useToast } from '../ui/overlays'
 import { BlockList } from './BlockList'
+import { ConditionFields } from './ConditionFields'
 import { FieldPicker } from './FieldPicker'
 import { TokenField, useTokenTarget } from './TokenTarget'
 
@@ -122,6 +116,13 @@ export function RepeatFields({
                             />
                         </Field>
                     </div>
+                    <ConditionFields
+                        label="Only the rows where…"
+                        hint="Tested on each row, with its {{row.field}} tokens: for what the filter above cannot say."
+                        fallback={{ value: '{{row.state}}', test: 'notEmpty' }}
+                        value={block.where}
+                        onChange={where => onChange({ where })}
+                    />
                     <Field label="When there are none" hint="Printed instead. Empty prints nothing.">
                         <TokenField
                             value={block.emptyText ?? ''}
@@ -162,60 +163,3 @@ export function RepeatFields({
         </div>
     )
 }
-
-const TESTS: { value: ConditionTest; label: string }[] = [
-    { value: 'notEmpty', label: 'is not empty' },
-    { value: 'empty', label: 'is empty' },
-    { value: 'equals', label: 'is' },
-    { value: 'notEquals', label: 'is not' },
-    { value: 'contains', label: 'contains' },
-    { value: 'greater', label: 'is more than' },
-    { value: 'less', label: 'is less than' },
-]
-
-/** "Show only when…": the condition every block can have. */
-export function ConditionFields({
-    block,
-    onChange,
-}: {
-    block: PdfBlock
-    onChange: (when: BlockCondition | undefined) => void
-}) {
-    const when = block.when
-    const needsValue = when && when.test !== 'empty' && when.test !== 'notEmpty'
-    return (
-        <div className="tp-condition tp-stack tp-stack--tight">
-            <Switch
-                checked={Boolean(when)}
-                onChange={on => onChange(on ? { value: '{{record.state}}', test: 'notEmpty' } : undefined)}
-                label="Show only when…"
-            />
-            {when && (
-                <div className="tp-grid tp-grid--3">
-                    <Field label="This" hint="Usually one token, like {{raw.priority}}.">
-                        <TokenField value={when.value} onChange={value => onChange({ ...when, value })} />
-                    </Field>
-                    <Field label="Test">
-                        <Select<ConditionTest>
-                            value={when.test}
-                            options={TESTS}
-                            aria-label="Condition test"
-                            onChange={test => onChange({ ...when, test })}
-                        />
-                    </Field>
-                    {needsValue && (
-                        <Field label="Value">
-                            <TokenField value={when.to ?? ''} onChange={to => onChange({ ...when, to })} />
-                        </Field>
-                    )}
-                </div>
-            )}
-        </div>
-    )
-}
-
-/** A condition in words, for a collapsed block's summary. */
-export const describeCondition = (when: BlockCondition): string =>
-    `only when ${when.value} ${TESTS.find(test => test.value === when.test)?.label ?? when.test}${
-        when.to && when.test !== 'empty' && when.test !== 'notEmpty' ? ` ${when.to}` : ''
-    }`

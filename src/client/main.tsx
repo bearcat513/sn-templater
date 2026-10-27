@@ -19,6 +19,7 @@ import './styles/canvas.css'
 import './styles/motion.css'
 import './styles/devtools.css'
 import './styles/features.css'
+import './styles/collaboration.css'
 
 // Records from the first request on; `/me` then says whether to keep it or drop it.
 installDebugCapture()

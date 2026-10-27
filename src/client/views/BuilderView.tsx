@@ -2,60 +2,42 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { SectionModal, SettingsModal, type SectionDraft } from '../builder/BuilderDialogs'
 import { Fit } from '../builder/Fit'
 import { Inspector, type TransitionControl } from '../builder/Inspector'
-import { savedAs, type Meta, type Saved } from '../builder/meta'
-import {
-    deleteSlide,
-    duplicateSlide,
-    hideSection,
-    insertSection,
-    insertSlide,
-    moveSection,
-    moveSlide,
-    removeSection,
-    setHidden,
-    updateSection,
-} from '../builder/operations'
+import { duplicateSlide } from '../builder/operations'
 import { Ribbon } from '../builder/Ribbon'
 import { RecordSlideInspector, SectionInspector, SectionSummary } from '../builder/SectionPanels'
 import { SlideCanvas } from '../builder/SlideCanvas'
 import { SlideSorter } from '../builder/SlideSorter'
 import { useBuilderKeys } from '../builder/useBuilderKeys'
 import { useHistory } from '../builder/useHistory'
+import { reduceBody, type BodyAction } from '../builder/reducer'
+import { useBuilderPersistence, type SaveMode } from '../builder/useBuilderPersistence'
+import { PresentationHistory } from '../builder/PresentationHistory'
+import { ShareModal } from '../builder/ShareModal'
+import { CommentsPanel } from '../builder/CommentsPanel'
+import { CommentService, type SlideComment } from '../services/collaboration'
+import { PresentationService } from '../services/presentations'
+import { ownsPresentation } from '../data/deck'
+import { PublishModal } from '../designer/PublishModal'
+import { droppedNote } from './common'
 import { useSectionDecks } from '../builder/useSectionDecks'
 import { useSlideEditor } from '../builder/useSlideEditor'
 import { useCharts } from '../data/charts'
-import {
-    assemble,
-    canChangePresentation,
-    frameOf,
-    loadDeck,
-    recordLink,
-    sourceOf,
-    type DeckSource,
-    type LoadedDeck,
-} from '../data/deck'
-import { openPictures, storePictures } from '../data/pictures'
+import { assemble, recordLink } from '../data/deck'
 import { useSession } from '../data/session'
-import { describeError, log, useInspect } from '../debug/log'
+import { log, useInspect } from '../debug/log'
 import { pageDimensions } from '../engine/pdf'
 import {
     DEFAULT_TRANSITION,
     EMPTY_BODY,
     MAX_CUSTOM_SLIDES,
     MAX_NOTES_LENGTH,
-    MAX_PRESENTATION_BODY_LENGTH,
     MAX_SECTIONS,
-    applyTransitionToAll,
     customKey,
     layoutSlide,
     newId,
-    orderOf,
     presentationChartIds,
-    readPresentation,
     sectionKey,
     sectionOf,
-    serializePresentation,
-    withSlideOptions,
     type CustomSlide,
     type DeckSection,
     type PresentationBody,
@@ -65,11 +47,8 @@ import { renderPdfSlides, resolvePage } from '../engine/render'
 import { documentFileName } from '../engine/tokens'
 import { prepareFonts } from '../hooks/useFonts'
 import { downloadBytes } from '../hooks/usePdf'
-import { replaceUrl, setPageTitle, type Navigate } from '../hooks/useRoute'
-import { assertUnchanged, ConflictError } from '../services/http'
-import { PRESENTATION_TABLE, PresentationService, type PresentationRecord } from '../services/presentations'
+import { setPageTitle, type Navigate } from '../hooks/useRoute'
 import { ConflictModal } from '../ui/ConflictModal'
-import { useLocalDraft } from '../hooks/useLocalDraft'
 import { arrange, shown, type Slide } from '../slides/paginate'
 import { Presenter } from '../slides/Presenter'
 import { SlideView } from '../slides/SlideView'
@@ -90,105 +69,55 @@ import { NarrowNotice } from '../ui/NarrowNotice'
 export function BuilderView({ params, navigate }: { params: URLSearchParams; navigate: Navigate }) {
     const session = useSession()
     const toast = useToast()
-    const [record, setRecord] = useState<PresentationRecord | null>(null)
-    const [meta, setMeta] = useState<Meta | null>(null)
-    const [deck, setDeck] = useState<LoadedDeck | null>(null)
     const history = useHistory<PresentationBody>(EMPTY_BODY)
     const body = history.value
-    const [saved, setSaved] = useState<Saved>(() => savedAs(null, EMPTY_BODY))
-    const [opening, setOpening] = useState('Opening…')
-    const [loadError, setLoadError] = useState('')
-    const [deckError, setDeckError] = useState('')
+    const { set: setBody, reset: resetBody } = history
+    /** Every change to the body, as a named action (see ../builder/reducer.ts). */
+    const dispatch = useCallback(
+        (action: BodyAction, merge?: string) => setBody(currentBody => reduceBody(currentBody, action), merge),
+        [setBody]
+    )
+    const replaceBody = useCallback((next: PresentationBody) => dispatch({ type: 'replace', body: next }), [dispatch])
+    const persistence = useBuilderPersistence({ params, body, reset: resetBody, replaceBody, toast })
+    const {
+        record,
+        meta,
+        setMeta,
+        deck,
+        setDeck,
+        openDeck,
+        opening,
+        loadError,
+        deckError,
+        setDeckError,
+        dirty,
+        canChange,
+        publishesOnSave,
+        unpublished,
+        saving,
+        saveError,
+        setSaveError,
+        conflict,
+        setConflict,
+        local,
+        leftOver,
+    } = persistence
     const [current, setCurrent] = useState('')
     const [presenting, setPresenting] = useState<number | null>(null)
     const [settingsOpen, setSettingsOpen] = useState(false)
     const [pending, setPending] = useState<(() => void) | null>(null)
     const [confirmDelete, setConfirmDelete] = useState(false)
-    const [saving, setSaving] = useState(false)
-    const [saveError, setSaveError] = useState('')
-    const [conflict, setConflict] = useState<ConflictError | null>(null)
+    const [confirmDiscard, setConfirmDiscard] = useState(false)
+    const [publishing, setPublishing] = useState(false)
+    const [historyOpen, setHistoryOpen] = useState(false)
     const [notesOpen, setNotesOpen] = useState(true)
+    const [commentsOpen, setCommentsOpen] = useState(false)
+    const [shareOpen, setShareOpen] = useState(false)
+    const [sharing, setSharing] = useState(false)
+    const [comments, setComments] = useState<SlideComment[]>([])
+    const [commentsState, setCommentsState] = useState({ loading: false, error: '' })
     /** The section dialog: placing a template at a gap, or changing a placed one. */
     const [sectionDialog, setSectionDialog] = useState<{ at: number } | { id: string } | null>(null)
-
-    /* -------------------------------- loading ------------------------------- */
-
-    const openDeck = useCallback(
-        async (source: DeckSource) => {
-            setDeckError('')
-            setOpening('Reading records…')
-            try {
-                const loaded = await loadDeck(source, session, (done, total) =>
-                    setOpening(total ? `Reading related lists… ${done} of ${total}` : 'Reading records…')
-                )
-                setDeck(loaded)
-                // A new presentation is named after its deck until someone names it.
-                setMeta(current =>
-                    current && !current.name ? { ...current, name: current.title || loaded.record.name } : current
-                )
-                log.info('builder', `Loaded ${loaded.job.records.length} records for “${source.title}”`, {
-                    template: loaded.record.sysId,
-                    matched: loaded.matched,
-                })
-            } catch (failure) {
-                const { message, data } = describeError(failure)
-                log.error('builder', message, data)
-                setDeck(null)
-                setDeckError(failure instanceof Error ? failure.message : String(failure))
-            } finally {
-                setOpening('')
-            }
-        },
-        [session]
-    )
-
-    useEffect(() => {
-        let live = true
-        ;(async () => {
-            const id = params.get('id')
-            let nextMeta: Meta
-            let nextBody: PresentationBody = EMPTY_BODY
-            if (id) {
-                const found = await PresentationService.get(id)
-                if (!live) return
-                setRecord(found)
-                nextMeta = { ...sourceOf(found), name: found.name }
-                nextBody = await openPictures(readPresentation(found.body ?? ''), PRESENTATION_TABLE, found.sysId)
-                setPageTitle(found.name)
-            } else {
-                const templateId = params.get('template') ?? ''
-                const title = params.get('title') ?? ''
-                nextMeta = {
-                    templateId,
-                    title,
-                    name: title,
-                    query: params.get('query') ?? '',
-                    orderBy: params.get('order') ?? '',
-                    limit: Number(params.get('limit')) || 20,
-                }
-                // Built from nothing: a title slide to start on, as PowerPoint opens.
-                if (!templateId) {
-                    const frame = frameOf(null)
-                    const first = layoutSlide('title', {
-                        ...pageDimensions(frame.page.size, frame.page.landscape),
-                        page: resolvePage(frame),
-                    })
-                    nextBody = { ...EMPTY_BODY, slides: [first], order: [{ key: customKey(first.id) }] }
-                }
-                setPageTitle('New presentation')
-            }
-            setMeta(nextMeta)
-            history.reset(nextBody)
-            setSaved(savedAs(nextMeta, nextBody))
-            if (nextMeta.templateId) await openDeck(nextMeta)
-            else setOpening('')
-        })().catch(failure => live && setLoadError(failure instanceof Error ? failure.message : String(failure)))
-        return () => {
-            live = false
-        }
-        // Opened once per mount; the view is remounted when its address changes.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [])
 
     /* ------------------------------- the slides ----------------------------- */
 
@@ -239,25 +168,44 @@ export function BuilderView({ params, navigate }: { params: URLSearchParams; nav
         slideEditor.reset()
     }
 
-    const dirty = Boolean(meta) && (body !== saved.body || JSON.stringify(meta) !== saved.meta)
-    const canChange = canChangePresentation(record, session)
-
-    // Unsaved work on a saved presentation is kept in this browser until it is saved.
-    const unsaved = useMemo(() => (meta ? { meta, body } : null), [meta, body])
-    const local = useLocalDraft(
-        record && canChange ? `presentation:${record.sysId}` : null,
-        unsaved,
-        dirty,
-        record?.modCount ?? 0
-    )
-    const leftOver = Boolean(
-        local.found?.value &&
-            (JSON.stringify(local.found.value.meta) !== saved.meta ||
-                JSON.stringify(local.found.value.body) !== JSON.stringify(saved.body))
-    )
+    // Comments are read once the presentation is saved, and kept here as they are added and resolved.
+    const presentationId = record?.sysId ?? ''
     useEffect(() => {
-        if (local.found && !leftOver) local.dismiss()
-    }, [local, leftOver])
+        if (!presentationId) return
+        let live = true
+        setCommentsState({ loading: true, error: '' })
+        CommentService.list(presentationId)
+            .then(found => live && (setComments(found), setCommentsState({ loading: false, error: '' })))
+            .catch(
+                failure =>
+                    live &&
+                    setCommentsState({
+                        loading: false,
+                        error: failure instanceof Error ? failure.message : 'Comments could not be read.',
+                    })
+            )
+        return () => {
+            live = false
+        }
+    }, [presentationId])
+
+    const share = async (editors: string[], editorGroups: string[]) => {
+        if (!record) return
+        setSharing(true)
+        try {
+            persistence.setRecord(await PresentationService.update(record.sysId, { editors, editorGroups }))
+            setShareOpen(false)
+            toast(
+                editors.length || editorGroups.length
+                    ? 'Sharing saved. They can change this presentation now.'
+                    : 'Only you and editors can change this presentation now.'
+            )
+        } catch (failure) {
+            toast(failure instanceof Error ? failure.message : 'Sharing could not be saved.', 'critical')
+        } finally {
+            setSharing(false)
+        }
+    }
 
     useInspect('builder.record', record)
     useInspect('builder.meta', meta)
@@ -276,7 +224,7 @@ export function BuilderView({ params, navigate }: { params: URLSearchParams; nav
             return
         }
         const made = layoutSlide(layout, sheet)
-        history.set(currentBody => insertSlide(currentBody, slides, at, made))
+        dispatch({ type: 'insertSlide', slides, at, slide: made })
         choose(customKey(made.id))
     }
 
@@ -295,11 +243,11 @@ export function BuilderView({ params, navigate }: { params: URLSearchParams; nav
         setSectionDialog(null)
         if (!dialog) return
         if ('id' in dialog) {
-            history.set(currentBody => updateSection(currentBody, dialog.id, draft))
+            dispatch({ type: 'updateSection', id: dialog.id, change: draft })
             return
         }
         const section: DeckSection = { id: newId(), ...draft }
-        history.set(currentBody => insertSection(currentBody, slides, dialog.at, section))
+        dispatch({ type: 'insertSection', slides, at: dialog.at, section })
         choose(sectionKey(section.id))
     }
 
@@ -310,7 +258,7 @@ export function BuilderView({ params, navigate }: { params: URLSearchParams; nav
                 slides.find(entry => sectionOf(entry.key) !== id)
             choose(next?.key ?? '')
         }
-        history.set(currentBody => removeSection(currentBody, slides, id))
+        dispatch({ type: 'removeSection', slides, id })
     }
 
     /* --------------------------- notes and transitions ---------------------- */
@@ -321,11 +269,10 @@ export function BuilderView({ params, navigate }: { params: URLSearchParams; nav
             ? {
                   value: slideOptions?.transition,
                   deck: body.transition ?? DEFAULT_TRANSITION,
-                  onChange: next =>
-                      history.set(currentBody => withSlideOptions(currentBody, slide.key, { transition: next })),
+                  onChange: next => dispatch({ type: 'slideOptions', key: slide.key, change: { transition: next } }),
                   onApplyAll: () => {
                       const chosen = slideOptions?.transition ?? body.transition ?? DEFAULT_TRANSITION
-                      history.set(currentBody => applyTransitionToAll(currentBody, chosen))
+                      dispatch({ type: 'transitionAll', transition: chosen })
                       toast(`Every slide now comes in with ${chosen === 'none' ? 'no transition' : `a ${chosen}`}.`)
                   },
               }
@@ -334,78 +281,24 @@ export function BuilderView({ params, navigate }: { params: URLSearchParams; nav
     const setNotes = (notes: string) => {
         if (!slide) return
         const key = slide.key
-        history.set(currentBody => withSlideOptions(currentBody, key, { notes }), `notes:${key}`)
+        dispatch({ type: 'slideOptions', key, change: { notes } }, `notes:${key}`)
     }
 
     /* ------------------------------ saving ---------------------------------- */
 
-    const save = useCallback(
-        async (options: { asCopy?: boolean; force?: boolean } = {}) => {
-            if (!meta || saving || !assembled) return
-            const asCopy = options.asCopy === true
-            const name = meta.name.trim() || meta.title.trim() || deck?.record.name || 'Untitled presentation'
-            const updating = Boolean(record && !asCopy && canChange)
-            setSaving(true)
-            setSaveError('')
-            try {
-                const input = {
-                    name: (asCopy ? `${name} (copy)` : name).slice(0, 100),
-                    template: meta.templateId,
-                    title: meta.title,
-                    query: meta.query,
-                    orderBy: meta.orderBy,
-                    limit: meta.limit,
-                }
-                // Pictures are attachments of the presentation, so a new one is made first and given them after.
-                if (updating && !options.force)
-                    await assertUnchanged(PRESENTATION_TABLE, record!.sysId, record!.modCount)
-                const target = updating ? record! : await PresentationService.create({ ...input, body: '' })
-                // The order as the author saw it, record slides placed by the arrangement included.
-                const ordered = readPresentation(serializePresentation({ ...body, order: orderOf(slides) }))
-                const text = JSON.stringify(await storePictures(ordered, PRESENTATION_TABLE, target.sysId))
-                if (text.length > MAX_PRESENTATION_BODY_LENGTH) {
-                    throw new Error(
-                        `This presentation is too large to save (${Math.round(text.length / 1000).toLocaleString()} kB of ${
-                            MAX_PRESENTATION_BODY_LENGTH / 1000
-                        } kB). Remove some slides or elements.`
-                    )
-                }
-                const stored = await PresentationService.update(target.sysId, { ...input, body: text })
-                const nextMeta = { ...meta, name: stored.name }
-                setRecord(stored)
-                setMeta(nextMeta)
-                setSaved(savedAs(nextMeta, body))
-                local.clear()
-                replaceUrl('build', { id: stored.sysId })
-                setPageTitle(stored.name)
-                log.info('builder', `Saved “${stored.name}”`, { sysId: stored.sysId, bodyLength: text.length })
-                toast(updating ? 'Presentation saved.' : `Saved “${stored.name}”.`)
-            } catch (failure) {
-                if (failure instanceof ConflictError) {
-                    setConflict(failure)
-                    return
-                }
-                const { message, data } = describeError(failure)
-                log.error('builder', `Save failed: ${message}`, data)
-                setSaveError(failure instanceof Error ? failure.message : 'The presentation could not be saved.')
-            } finally {
-                setSaving(false)
-            }
-        },
-        [meta, saving, assembled, deck, body, slides, record, canChange, toast, local]
-    )
+    /** The last way a save was asked for, so a save over someone else's goes the same way. */
+    const lastMode = useRef<SaveMode>({})
+    const save = (mode: SaveMode = {}) => {
+        if (!assembled) return
+        lastMode.current = mode
+        void persistence.save(slides, mode).then(done => done && setPublishing(false))
+    }
+    /** The Save button and Ctrl+S: a draft, unless the presentation has never been published. */
+    const saveDraft = () => save({ asCopy: Boolean(record) && !canChange })
 
     const remove = async () => {
         setConfirmDelete(false)
-        if (!record) return
-        try {
-            await PresentationService.remove(record.sysId)
-            setSaved(savedAs(meta, body))
-            toast(`Deleted “${record.name}”.`)
-            navigate('present')
-        } catch (failure) {
-            toast(failure instanceof Error ? failure.message : 'The presentation could not be deleted.', 'critical')
-        }
+        if (await persistence.remove()) navigate('present')
     }
 
     /* ------------------------------ leaving --------------------------------- */
@@ -457,7 +350,7 @@ export function BuilderView({ params, navigate }: { params: URLSearchParams; nav
         slides,
         index,
         choose,
-        save: () => void save(),
+        save: saveDraft,
         undo: history.undo,
         redo: history.redo,
         present,
@@ -565,6 +458,7 @@ export function BuilderView({ params, navigate }: { params: URLSearchParams; nav
                     )}
                     {!record && <Badge tone="primary">New</Badge>}
                     {dirty && <Badge tone="warning">Unsaved</Badge>}
+                    {!dirty && record?.hasDraft && <Badge tone="warning">Unpublished draft</Badge>}
                 </div>
                 <div className="tp-row">
                     <Button
@@ -602,14 +496,31 @@ export function BuilderView({ params, navigate }: { params: URLSearchParams; nav
                         PDF
                     </Button>
                     <Button
-                        variant="primary"
+                        variant={publishesOnSave || !canChange ? 'primary' : 'secondary'}
                         icon="save"
-                        busy={saving}
-                        disabled={!assembled || (Boolean(record) && canChange && !dirty)}
-                        onClick={() => void save({ asCopy: Boolean(record) && !canChange })}
+                        busy={saving && !publishing}
+                        disabled={!assembled || saving || (Boolean(record) && canChange && !dirty)}
+                        onClick={saveDraft}
+                        title={
+                            record && !canChange
+                                ? 'Save a copy of your own'
+                                : publishesOnSave
+                                  ? 'Save and publish (Ctrl+S)'
+                                  : 'Save a draft (Ctrl+S)'
+                        }
                     >
                         {record && !canChange ? 'Save a copy' : 'Save'}
                     </Button>
+                    {record && canChange && !publishesOnSave && (
+                        <Button
+                            variant="primary"
+                            icon="publish"
+                            disabled={!assembled || !unpublished || saving}
+                            onClick={() => setPublishing(true)}
+                        >
+                            Publish
+                        </Button>
+                    )}
                     <Menu
                         label="Presentation actions"
                         items={[
@@ -623,8 +534,35 @@ export function BuilderView({ params, navigate }: { params: URLSearchParams; nav
                                 label: 'Save a copy',
                                 icon: 'copy',
                                 disabled: !assembled || !record,
-                                onSelect: () => void save({ asCopy: true }),
+                                onSelect: () => save({ asCopy: true }),
                             },
+                            ...(record
+                                ? [
+                                      {
+                                          label: 'Published versions…',
+                                          icon: 'history' as const,
+                                          onSelect: () => setHistoryOpen(true),
+                                      },
+                                  ]
+                                : []),
+                            ...(record && ownsPresentation(record, session)
+                                ? [
+                                      {
+                                          label: 'Share…',
+                                          icon: 'users' as const,
+                                          onSelect: () => setShareOpen(true),
+                                      },
+                                  ]
+                                : []),
+                            ...(record && canChange && record.hasDraft
+                                ? [
+                                      {
+                                          label: 'Discard unpublished changes',
+                                          icon: 'undo' as const,
+                                          onSelect: () => setConfirmDiscard(true),
+                                      },
+                                  ]
+                                : []),
                             ...(deck
                                 ? [
                                       {
@@ -650,6 +588,14 @@ export function BuilderView({ params, navigate }: { params: URLSearchParams; nav
             </header>
 
             <div className="tp-editor__notices">
+                {record?.hasDraft && canChange && (
+                    <Notice
+                        kind="info"
+                        lines={[
+                            'You are looking at unpublished changes. The presentation’s link presents the published version until you publish.',
+                        ]}
+                    />
+                )}
                 {record && !canChange && (
                     <Notice
                         kind="info"
@@ -683,20 +629,11 @@ export function BuilderView({ params, navigate }: { params: URLSearchParams; nav
                         title="Unsaved changes from earlier"
                         lines={[
                             `Changes you made on ${new Date(local.found.savedAt).toLocaleString()} were never saved, and were kept in this browser.`,
+                            ...droppedNote(local.found.droppedPictures),
                         ]}
                     >
                         <div className="tp-row">
-                            <Button
-                                size="sm"
-                                variant="primary"
-                                icon="undo"
-                                onClick={() => {
-                                    const kept = local.found!.value!
-                                    setMeta(kept.meta)
-                                    history.set(kept.body)
-                                    local.dismiss()
-                                }}
-                            >
+                            <Button size="sm" variant="primary" icon="undo" onClick={persistence.restoreLocal}>
                                 Restore them
                             </Button>
                             <Button size="sm" variant="ghost" onClick={local.dismiss}>
@@ -776,29 +713,21 @@ export function BuilderView({ params, navigate }: { params: URLSearchParams; nav
                                 current={current}
                                 onSelect={choose}
                                 onInsert={insert}
-                                onMove={(from, to) =>
-                                    history.set(currentBody => moveSlide(currentBody, slides, from, to))
-                                }
-                                onHide={(key, hidden) =>
-                                    history.set(currentBody => setHidden(currentBody, slides, key, hidden))
-                                }
+                                onMove={(from, to) => dispatch({ type: 'moveSlide', slides, from, to })}
+                                onHide={(key, hidden) => dispatch({ type: 'setHidden', slides, key, hidden })}
                                 onDuplicate={key => {
                                     const made = duplicateSlide(body, slides, key)
-                                    history.set(made.body)
+                                    dispatch({ type: 'replace', body: made.body })
                                     choose(made.key)
                                 }}
                                 onDelete={key => {
                                     const next = slides[index + 1]?.key ?? slides[index - 1]?.key ?? ''
-                                    history.set(currentBody => deleteSlide(currentBody, slides, key))
+                                    dispatch({ type: 'deleteSlide', slides, key })
                                     if (key === current) choose(next)
                                 }}
                                 onInsertSection={openSectionDialog}
-                                onMoveSection={(id, gap) =>
-                                    history.set(currentBody => moveSection(currentBody, slides, id, gap))
-                                }
-                                onHideSection={(id, hidden) =>
-                                    history.set(currentBody => hideSection(currentBody, slides, id, hidden))
-                                }
+                                onMoveSection={(id, gap) => dispatch({ type: 'moveSection', slides, id, gap })}
+                                onHideSection={(id, hidden) => dispatch({ type: 'hideSection', slides, id, hidden })}
                                 onRemoveSection={dropSection}
                             />
                         </aside>
@@ -858,6 +787,17 @@ export function BuilderView({ params, navigate }: { params: URLSearchParams; nav
                                     />
                                 </div>
                             )}
+                            {slide && !marker && commentsOpen && record && (
+                                <CommentsPanel
+                                    presentation={record.sysId}
+                                    comments={comments}
+                                    loading={commentsState.loading}
+                                    error={commentsState.error}
+                                    slide={slide.key}
+                                    presentationAuthor={record.createdBy}
+                                    onChange={setComments}
+                                />
+                            )}
                             <footer className="tp-builder__status">
                                 <span>
                                     {marker
@@ -876,7 +816,7 @@ export function BuilderView({ params, navigate }: { params: URLSearchParams; nav
                                         variant="ghost"
                                         icon="eye"
                                         onClick={() =>
-                                            history.set(currentBody => setHidden(currentBody, slides, slide.key, false))
+                                            dispatch({ type: 'setHidden', slides, key: slide.key, hidden: false })
                                         }
                                     >
                                         Show it
@@ -892,6 +832,21 @@ export function BuilderView({ params, navigate }: { params: URLSearchParams; nav
                                 >
                                     Notes
                                 </Button>
+                                {record && (
+                                    <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        icon="comment"
+                                        aria-pressed={commentsOpen}
+                                        onClick={() => setCommentsOpen(open => !open)}
+                                        title={commentsOpen ? 'Hide comments' : 'Show comments on this slide'}
+                                    >
+                                        Comments
+                                        {slide && openComments(comments, slide.key)
+                                            ? ` (${openComments(comments, slide.key)})`
+                                            : ''}
+                                    </Button>
+                                )}
                             </footer>
                         </section>
 
@@ -905,15 +860,13 @@ export function BuilderView({ params, navigate }: { params: URLSearchParams; nav
                                     loaded={markerDeck}
                                     slides={slides.filter(entry => !entry.marker && sectionOf(entry.key) === marker.id)}
                                     onRename={name =>
-                                        history.set(
-                                            currentBody => updateSection(currentBody, marker.id, { name }),
+                                        dispatch(
+                                            { type: 'updateSection', id: marker.id, change: { name } },
                                             `section:${marker.id}`
                                         )
                                     }
                                     onChange={() => setSectionDialog({ id: marker.id })}
-                                    onHide={hidden =>
-                                        history.set(currentBody => hideSection(currentBody, slides, marker.id, hidden))
-                                    }
+                                    onHide={hidden => dispatch({ type: 'hideSection', slides, id: marker.id, hidden })}
                                     onRemove={() => dropSection(marker.id)}
                                     onEditTemplate={() => guarded(() => navigate('edit', { id: marker.template }))}
                                 />
@@ -930,9 +883,7 @@ export function BuilderView({ params, navigate }: { params: URLSearchParams; nav
                                     link={ownerLink}
                                     transition={transition}
                                     onToggleHidden={() =>
-                                        history.set(currentBody =>
-                                            setHidden(currentBody, slides, slide.key, !slide.hidden)
-                                        )
+                                        dispatch({ type: 'setHidden', slides, key: slide.key, hidden: !slide.hidden })
                                     }
                                     onAddAfter={() => insert(index + 1, 'titleContent')}
                                 />
@@ -995,8 +946,7 @@ export function BuilderView({ params, navigate }: { params: URLSearchParams; nav
                 onConfirm={() => {
                     const go = pending
                     setPending(null)
-                    setSaved(savedAs(meta, body))
-                    local.clear()
+                    persistence.forget()
                     go?.()
                 }}
                 onCancel={() => setPending(null)}
@@ -1007,17 +957,54 @@ export function BuilderView({ params, navigate }: { params: URLSearchParams; nav
                 onClose={() => setConflict(null)}
                 onReload={() => {
                     setConflict(null)
-                    setSaved(savedAs(meta, body))
+                    persistence.forget()
                     navigate('build', { id: record?.sysId, reopen: String(Date.now()) }, { replace: true })
                 }}
                 onOverwrite={() => {
                     setConflict(null)
-                    void save({ force: true })
+                    save({ ...lastMode.current, force: true })
                 }}
                 onSaveCopy={() => {
                     setConflict(null)
-                    void save({ asCopy: true })
+                    save({ asCopy: true })
                 }}
+            />
+            <PublishModal
+                open={publishing}
+                version={(record?.version ?? 0) + 1}
+                busy={saving}
+                message="Everyone who opens this presentation’s link sees these changes from now on. The version they replace stays in its history."
+                onClose={() => setPublishing(false)}
+                onPublish={note => save({ publish: true, note })}
+            />
+            {shareOpen && record && (
+                <ShareModal
+                    editors={record.editors}
+                    editorGroups={record.editorGroups}
+                    busy={sharing}
+                    onClose={() => setShareOpen(false)}
+                    onSave={(editors, editorGroups) => void share(editors, editorGroups)}
+                />
+            )}
+            {historyOpen && record && (
+                <PresentationHistory
+                    sysId={record.sysId}
+                    canChange={canChange}
+                    onClose={() => setHistoryOpen(false)}
+                    onRestore={persistence.restoreVersion}
+                />
+            )}
+            <ConfirmModal
+                open={confirmDiscard}
+                title="Discard unpublished changes?"
+                message="The draft is deleted and the builder goes back to the published version. This cannot be undone."
+                confirmLabel="Discard changes"
+                danger
+                onConfirm={() => {
+                    setConfirmDiscard(false)
+                    void persistence.discardDraft()
+                }}
+                onCancel={() => setConfirmDiscard(false)}
             />
             <ConfirmModal
                 open={confirmDelete}
@@ -1031,3 +1018,7 @@ export function BuilderView({ params, navigate }: { params: URLSearchParams; nav
         </div>
     )
 }
+
+/** Comments on a slide not yet resolved. */
+const openComments = (comments: SlideComment[], slide: string): number =>
+    comments.filter(comment => comment.slide === slide && !comment.resolved).length

@@ -1,4 +1,4 @@
-import { expandBlocks } from '../engine/expand'
+import { expandBlocks, holds } from '../engine/expand'
 import type { RenderJob, SlideSource } from '../engine/render'
 import {
     DEFAULT_TRANSITION,
@@ -59,7 +59,7 @@ export function paginate(template: PdfTemplate, job: RenderJob, within?: Within)
     const prefix = within ? `${sectionKey(within.section.id)}:` : ''
     const own = within ? { template } : {}
 
-    if (template.cover?.length) {
+    if (template.cover?.length && (!template.coverWhen || holds(template.coverWhen, job.coverValues))) {
         const runs = split(expandBlocks(template.cover, job.coverValues, {}))
         runs.forEach((blocks, index) =>
             slides.push({

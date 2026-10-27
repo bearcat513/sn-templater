@@ -235,3 +235,13 @@ export function Step({ number, title, children }: { number: number; title: strin
         </section>
     )
 }
+
+/** The line a restored local copy adds when it had no room for the pictures added since the last save. */
+export const droppedNote = (dropped: number | undefined): string[] =>
+    dropped
+        ? [
+              `${dropped} picture${dropped === 1 ? '' : 's'} added since the last save could not be kept in this browser, and ${
+                  dropped === 1 ? 'is' : 'are'
+              } left out.`,
+          ]
+        : []

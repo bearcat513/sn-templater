@@ -1,26 +1,32 @@
 {
     "name": "templater",
-    "version": "0.0.1",
+    "version": "0.1.0",
     "description": "Turn ServiceNow records into formatted PDFs and slide decks.",
     "license": "UNLICENSED",
+    "packageManager": "bun@1.3.14",
+    "engines": {
+        "node": ">=22.18",
+        "bun": ">=1.3"
+    },
     "imports": {
         "#now:*": "./@types/servicenow/fluent/*/index.js"
     },
     "scripts": {
         "starters": "node scripts/build-starters.mjs",
         "fonts": "node scripts/build-fonts.mjs",
-        "build": "npm run starters && npm run fonts && now-sdk build",
+        "build": "bun run starters && bun run fonts && now-sdk build",
         "deploy": "now-sdk install",
         "transform": "now-sdk transform",
         "types": "now-sdk dependencies",
-        "dev": "npm run fonts && now-sdk run dev",
-        "typecheck": "npm run fonts && tsc -p src/client --noEmit && tsc -p src/client/tsconfig.test.json --noEmit && tsc -p src/server --noEmit",
+        "dev": "bun run fonts && now-sdk run dev",
+        "typecheck": "bun run fonts && tsc -p src/client --noEmit && tsc -p src/client/tsconfig.test.json --noEmit && tsc -p src/server --noEmit",
         "lint": "eslint .",
         "format": "prettier --write .",
         "format:check": "prettier --check .",
-        "test": "npm run fonts && vitest run",
+        "test": "bun run fonts && vitest run",
         "test:watch": "vitest",
-        "check": "npm run format:check && npm run lint && npm run typecheck && npm run test"
+        "check": "bun run format:check && bun run lint && bun run typecheck && bun run test",
+        "version": "node scripts/sync-version.mjs && git add src/fluent/script-includes/templater.server.js"
     },
     "devDependencies": {
         "@eslint/js": "9.32.0",

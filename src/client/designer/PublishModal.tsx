@@ -12,6 +12,7 @@ export function PublishModal({
     version,
     busy,
     usages,
+    message,
     onClose,
     onPublish,
 }: {
@@ -20,6 +21,8 @@ export function PublishModal({
     busy: boolean
     /** For a chart template: the templates and presentations that place it. */
     usages?: ChartUsage[]
+    /** What publishing does, when it is not a template's. */
+    message?: string
     onClose: () => void
     onPublish: (note: string) => void
 }) {
@@ -50,8 +53,8 @@ export function PublishModal({
         >
             <div className="tp-stack">
                 <p>
-                    Exports, decks and presentations that use this template will use these changes from now on. The
-                    version they replace stays in the history.
+                    {message ??
+                        'Exports, decks and presentations that use this template will use these changes from now on. The version they replace stays in the history.'}
                 </p>
                 {usages && usages.length > 0 && (
                     <Notice

@@ -24,8 +24,9 @@ import {
     type PdfPageSetup,
     type PdfStyle,
     type PdfTemplate,
+    type Condition,
 } from '../engine/template'
-import { expandBlocks } from '../engine/expand'
+import { expandBlocks, holds } from '../engine/expand'
 import { fillTokens } from '../engine/tokens'
 import { ChartSvg } from './Chart'
 import { FONT_STACKS, FreeformContent } from './Freeform'
@@ -94,7 +95,11 @@ export function SlideView({ template: deckTemplate, slide, width, className, edi
 
     const custom = slide.custom
     const furnished = !custom || custom.furniture === true
-    const watermark = furnished && template.watermark?.text ? fill(template.watermark.text) : ''
+    const onThisSlide = (when: Condition | undefined) => !when || holds(when, slide.values)
+    const watermark =
+        furnished && template.watermark?.text && onThisSlide(template.watermark.when)
+            ? fill(template.watermark.text)
+            : ''
     const footer = furnished && template.footer?.text ? fill(template.footer.text) : ''
     const showNumbers = furnished && template.footer?.showPageNumbers !== false
 
@@ -131,7 +136,7 @@ export function SlideView({ template: deckTemplate, slide, width, className, edi
                     </div>
                 )}
 
-                {furnished && (
+                {furnished && onThisSlide(template.header?.when) && (
                     <Letterhead template={template} page={page} sheetWidth={sheet.width} fill={fill} slide={slide} />
                 )}
 
