@@ -12,7 +12,11 @@ TemplaterUtils.prototype = {
     hasTemplatesFor: function (tableName) {
         if (!tableName || !gs.hasRole('x_1040823_template.user')) return false;
 
-        var tables = new GlideTableHierarchy(String(tableName)).getTables();
+        // An array in some releases, a Java list in others: copied out either way.
+        var found = new GlideTableHierarchy(String(tableName)).getTables();
+        var tables = [];
+        var count = found && typeof found.size === 'function' ? found.size() : found ? found.length : 0;
+        for (var i = 0; i < count; i++) tables.push(String(typeof found.get === 'function' ? found.get(i) : found[i]));
         var template = new GlideRecord('x_1040823_template_template');
         template.addActiveQuery();
         template.addQuery('table', 'IN', tables.join(','));

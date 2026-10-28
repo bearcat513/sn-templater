@@ -1,5 +1,6 @@
 import {
     gs,
+    type GlideElement,
     GlideDate,
     GlideDateTime,
     GlideEmailOutbound,
@@ -16,6 +17,7 @@ import {
     TEMPLATE_TABLE,
     USER_ROLE,
 } from './shared/constants.ts'
+import { listOf, stringsOf } from './lists.ts'
 
 /**
  * The scripted REST API behind the Templater UI page.
@@ -112,9 +114,8 @@ function schemaRoute(request: Request, response: Response) {
     record.initialize()
 
     const fields: { name: string; label: string; type: string; reference?: string }[] = []
-    const elements = record.getElements()
-    for (let i = 0; i < elements.length; i++) {
-        const element = elements[i]!
+    for (const item of listOf(record.getElements())) {
+        const element = item as GlideElement
         const descriptor = element.getED()
         const type = String(descriptor.getInternalType())
         const field: { name: string; label: string; type: string; reference?: string } = {
@@ -129,17 +130,40 @@ function schemaRoute(request: Request, response: Response) {
         fields.push(field)
     }
     fields.sort((a, b) => (a.label.toLowerCase() < b.label.toLowerCase() ? -1 : 1))
+    // The table and every table it extends: a template made for `task`
+    // fits an incident, and the export view offers it there.
+    const ancestors = stringsOf(new GlideTableHierarchy(table).getTables())
 
     response.setBody({
         name: table,
         label: String(record.getClassDisplayValue() || table),
-        displayField: String(record.getDisplayName() || ''),
-        // The table and every table it extends: a template made for `task`
-        // fits an incident, and the export view offers it there.
-        ancestors: new GlideTableHierarchy(table).getTables().map(String),
+        displayField: displayFieldOf(ancestors),
+        ancestors,
         fields,
         relationships: relationshipsOf(table),
     })
+}
+
+/**
+ * The field a table shows its records by: the one marked display on the
+ * table itself, else on the nearest table it extends. From sys_dictionary
+ * because a scoped GlideRecord has no getDisplayName.
+ */
+function displayFieldOf(ancestors: string[]): string {
+    const dictionary = new GlideRecord('sys_dictionary')
+    dictionary.addQuery('name', 'IN', ancestors.join(','))
+    dictionary.addQuery('display', true)
+    dictionary.query()
+    let field = ''
+    let nearest = ancestors.length
+    while (dictionary.next()) {
+        const at = ancestors.indexOf(String(dictionary.getValue('name')))
+        if (at !== -1 && at < nearest) {
+            nearest = at
+            field = String(dictionary.getValue('element') || '')
+        }
+    }
+    return field
 }
 
 /**
@@ -180,7 +204,7 @@ function tablesRoute(request: Request, response: Response) {
  * at one of its ancestors (`task_sla.task` points at every incident).
  */
 function relationshipsOf(table: string) {
-    const targets = new GlideTableHierarchy(table).getTables()
+    const targets = stringsOf(new GlideTableHierarchy(table).getTables())
     const labels: Record<string, string> = {}
     const readable: Record<string, boolean> = {}
     const found: { table: string; tableLabel: string; field: string; fieldLabel: string }[] = []
@@ -232,9 +256,8 @@ export function getContext(_request: Request, response: Response) {
         date: String(new GlideDate().getDisplayValue()),
         dateTime: String(new GlideDateTime().getDisplayValue()),
         timeZone: String((session && session.getTimeZoneName()) || ''),
-        language: String(user.getLanguage() || 'en'),
-        dateFormat: String(user.getDateFormat() || ''),
-        timeFormat: String(user.getTimeFormat() || ''),
+        language: String((session && session.getLanguage()) || 'en'),
+        ...formatsOf(String(gs.getUserID())),
         // For telling who may change a presentation shared with a group; the ACLs decide.
         groups: groupsOf(user),
         canEdit: gs.hasRole(EDITOR_ROLE),
@@ -242,13 +265,26 @@ export function getContext(_request: Request, response: Response) {
     })
 }
 
-/** The sys_ids of the groups someone is in. The platform hands back a Java list, not an array. */
-function groupsOf(user: ReturnType<typeof gs.getUser>): string[] {
-    const groups: string[] = []
-    const list = user.getMyGroups() as unknown as { size(): number; get(index: number): unknown }
-    for (let i = 0; list && i < list.size(); i++) groups.push(String(list.get(i)))
-    return groups
+/**
+ * Someone's date and time formats: their own, else the instance's. A scoped
+ * GlideUser has no getDateFormat or getTimeFormat, so they come off sys_user.
+ */
+function formatsOf(userId: string): { dateFormat: string; timeFormat: string } {
+    let dateFormat = ''
+    let timeFormat = ''
+    const record = new GlideRecord('sys_user')
+    if (record.get(userId)) {
+        dateFormat = String(record.getValue('date_format') || '')
+        timeFormat = String(record.getValue('time_format') || '')
+    }
+    return {
+        dateFormat: dateFormat || String(gs.getProperty('glide.sys.date_format', '')),
+        timeFormat: timeFormat || String(gs.getProperty('glide.sys.time_format', '')),
+    }
 }
+
+/** The sys_ids of the groups someone is in. */
+const groupsOf = (user: ReturnType<typeof gs.getUser>): string[] => stringsOf(user.getMyGroups())
 
 /* ------------------------------------------------------------------ email */
 
@@ -332,7 +368,8 @@ function emailRoute(request: Request, response: Response) {
     const recordUrl = instance + '/' + table + '.do?sys_id=' + sysId
     const label = delivery
         ? String(record.getValue('subject') || 'Templater delivery')
-        : String(record.getDisplayValue(String(record.getDisplayName())) || sysId)
+        : // With no field, the record's own display value; the typings only know the per-field form.
+          String((record as unknown as { getDisplayValue(): string }).getDisplayValue() || sysId)
     const sender = String(gs.getUserDisplayName())
 
     const html =
@@ -482,7 +519,7 @@ function saveRoute(request: Request, response: Response) {
         record.setValue(name, value === null || value === undefined ? '' : String(value))
     }
     if (!record.update()) {
-        const messages = (gs.getErrorMessages() || []).map(String)
+        const messages = stringsOf(gs.getErrorMessages())
         refuse(response, 400, messages.join(' ') || 'It could not be saved.')
         return
     }

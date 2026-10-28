@@ -145,6 +145,10 @@ declare global {
                         table: 'sys_security_acl'
                         id: 'ebca93010b2e4cf09a8890616ecd16c4'
                     }
+                    src_server_lists_ts: {
+                        table: 'sys_module'
+                        id: 'ca7eb61226734602b068974dadc90b32'
+                    }
                     'src_server_picture-cleanup_ts': {
                         table: 'sys_module'
                         id: '4ef15b91c0364482ad7e8d3852afe0d6'

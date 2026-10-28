@@ -8,6 +8,7 @@ import {
     VERSION_TABLE,
 } from '../shared/constants.ts'
 import { checkBody, checkPresentationBody, TEMPLATE_KINDS, type BodyCheck } from '../shared/schema.ts'
+import { stringsOf } from '../lists.ts'
 import { Deck } from './deck.ts'
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- scripts hand this API anything; each method checks what it gets. */
@@ -401,7 +402,7 @@ export class Templater {
     }
 
     _ancestors(table: string): string[] {
-        return new GlideTableHierarchy(table).getTables().map(String)
+        return stringsOf(new GlideTableHierarchy(table).getTables())
     }
 
     _ids(list: any[]): string[] {
@@ -465,8 +466,8 @@ export class Templater {
 
     /** Why the last write failed, when a business rule said. */
     private _why(): string {
-        const messages = gs.getErrorMessages()
-        return messages && messages.length ? ' ' + messages.map(String).join(' ') : ''
+        const messages = stringsOf(gs.getErrorMessages())
+        return messages.length ? ' ' + messages.join(' ') : ''
     }
 
     /** By GlideRecord, sys_id or name. By name, active first. */
